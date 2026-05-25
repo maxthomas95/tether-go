@@ -3,8 +3,10 @@ activityCompose = "1.13.0"
 agp = "9.2.0"
 composeBom = "2026.05.00"
 connectbotTermlib = "0.0.39"
+connectbotSshlib = "0.3.0"
 junit = "4.13.2"
 kotlin = "2.3.21"
+kotlinxCoroutines = "1.11.0"
 sonarqube = "7.3.0.8198"
 
 [libraries]
@@ -16,7 +18,9 @@ androidx-compose-ui = { module = "androidx.compose.ui:ui" }
 androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 connectbot-termlib = { module = "org.connectbot:termlib", version.ref = "connectbotTermlib" }
+connectbot-sshlib = { module = "org.connectbot.sshlib:sshlib", version.ref = "connectbotSshlib" }
 junit = { module = "junit:junit", version.ref = "junit" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

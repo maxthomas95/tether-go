@@ -2,17 +2,15 @@
 
 ## Current Status
 
-This repository contains the initial Android scaffold plus the first focused
-terminal-renderer spike. The app module now renders a ConnectBot `termlib`
-terminal fed by a high-volume fake PTY byte stream. Keyboard and quick-bar input
-are routed into a local stdin test buffer so input plumbing can be inspected
-without introducing SSH yet.
+This repository contains the initial Android scaffold plus focused terminal and
+SSH PTY spikes. The app module renders a ConnectBot `termlib` terminal and can
+connect directly to a user-provided SSH host with password auth, request an
+`xterm-256color` PTY, open a shell, stream raw SSH channel bytes into the
+terminal, and route keyboard and quick-bar input back to the SSH channel
+unchanged.
 
-The next implementation goal remains a technical spike that proves direct SSH PTY
-streaming into a mobile terminal while preserving Tether's dumb-pipe invariant.
-
-No SSH transport, session management, persistence, host-key storage, or product
-session UI has landed yet.
+No polished host manager, persisted session management, secure key storage,
+host-key TOFU UI, or product session UI has landed yet.
 
 ## Scaffold Stack
 
@@ -26,7 +24,9 @@ session UI has landed yet.
   `./gradlew assembleDebug` on pull requests and pushes to `main`.
 - SonarQube Cloud is configured for CI-based Gradle scanner analysis under
   project key `maxthomas95_tether-go`.
-- ConnectBot `termlib` is used for the first native terminal renderer spike.
+- ConnectBot `termlib` is used for the native terminal renderer.
+- ConnectBot `cbssh`, published as `org.connectbot.sshlib:sshlib`, is used for
+  the SSH PTY spike.
 
 ## Core Invariant
 
@@ -81,15 +81,16 @@ Why this path is viable:
   `TerminalEmulator` API with raw byte writes, keyboard byte callbacks, resize
   callbacks, color palette control, scrollback, selection, zoom, and soft
   keyboard handling.
-- The renderer path keeps Tether Go's data flow byte-preserving: fake PTY bytes
-  are written to the terminal emulator, and keyboard/quick-bar bytes are captured
-  from the terminal input callback without parsing terminal output.
+- The renderer path keeps Tether Go's data flow byte-preserving: SSH PTY output
+  bytes are written to the terminal emulator, and keyboard/quick-bar bytes are
+  captured from the terminal input callback and written to SSH stdin without
+  parsing terminal output.
 
 The xterm.js WebView fallback is not used in this spike because the native
 renderer is available, builds in the app, supports mobile terminal gestures, and
 avoids adding a JavaScript/WebView bridge before it is needed.
 
-Current validation:
+Renderer validation from PR #4:
 
 - The app streams ANSI-colored fake PTY output at scrollback-building volume.
 - Portrait and landscape emulator screenshots verify readable text, theme fit,
@@ -98,20 +99,28 @@ Current validation:
 - Hardware-style keyboard input and quick-bar input both reach the stdin test
   buffer.
 
-Remaining acceptance work before the stack is fully accepted:
+Current SSH PTY validation path:
 
-- Wire a real SSH PTY transport into the same terminal input/output path.
+- Direct SSH connection uses password auth and an in-memory host-key verifier.
+- The app requests an `xterm-256color` PTY, opens a shell, and routes terminal
+  input/output through the same native terminal path.
 - Run real TUIs such as `bash`, `vim`, `top`, Claude, Codex, and OpenCode.
 - Test Android lifecycle behavior with a live SSH channel.
-- Add host-key TOFU and secure key storage with the first SSH implementation.
+- Add persisted host-key TOFU and secure key storage before using production
+  credentials.
 
 ## Leading SSH Spike
 
-The preferred first spike is Kotlin + Jetpack Compose with native SSH and terminal libraries. Candidate libraries:
+The preferred first spike is Kotlin + Jetpack Compose with native SSH and
+terminal libraries.
 
-- ConnectBot `cbssh` for SSH.
-- ConnectBot `termlib` for terminal rendering. The renderer side is now the
-  selected path for the first native spike.
+- ConnectBot `cbssh` is viable and selected for SSH. The current published
+  artifact is `org.connectbot.sshlib:sshlib:0.3.0`, while the older
+  `org.connectbot:sshlib` artifact is not used for this spike.
+- ConnectBot `termlib` remains selected for terminal rendering.
+- The app keeps the terminal data path byte-preserving: SSH stdout/stderr chunks
+  are written directly to `termlib`, and terminal keyboard/quick-bar bytes are
+  written directly to the SSH session.
 
 Fallback:
 
@@ -132,7 +141,9 @@ Durable shared sessions are a later backend/agent problem, not a v0.1 requiremen
 
 ## Security Baseline
 
-- SSH host key TOFU from the first SSH implementation.
+- SSH host key TOFU from the first production SSH implementation. The current
+  spike accepts the first presented key in memory and rejects a different key
+  during the same connection attempt, but it does not persist known hosts.
 - Fail closed on host key changes.
 - Private key material encrypted at rest.
 - No plaintext tokens, passphrases, private keys, or Vault material in logs or config.

@@ -10,12 +10,14 @@ Tether Go is the "on the go" surface in the Tether product family:
 
 ## Status
 
-Initial Android scaffold with the first terminal-renderer spike. The app now
-renders a ConnectBot `termlib` terminal fed by a high-volume fake PTY byte stream,
-with keyboard and quick-bar input routed into a local stdin test buffer.
+Initial Android scaffold with terminal-renderer and SSH PTY spikes. The app now
+renders a ConnectBot `termlib` terminal and can connect directly to a
+user-provided SSH host with password auth, request an `xterm-256color` PTY, open
+a shell, stream raw SSH channel bytes into the terminal, and route keyboard and
+quick-bar input back to the remote PTY unchanged.
 
-No SSH transport, session management, storage, host-key handling, or product
-session UI has landed yet.
+No polished host manager, persisted session management, secure key storage, or
+host-key TOFU UI has landed yet.
 
 The initial product direction is intentionally small:
 
@@ -47,6 +49,7 @@ The initial product direction is intentionally small:
 | [ROADMAP.md](ROADMAP.md) | v0.1 scope, later phases, and deferred ideas |
 | [CHANGELOG.md](CHANGELOG.md) | Release history once development starts |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Initial architecture direction and open decisions |
+| [docs/SSH_PTY_SPIKE_TESTING.md](docs/SSH_PTY_SPIKE_TESTING.md) | Manual validation notes for the SSH PTY spike |
 | [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | Release mechanics to fill in before first APK |
 | [AGENTS.md](AGENTS.md) | Repository rules for coding agents and contributors |
 
