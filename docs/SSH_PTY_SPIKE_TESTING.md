@@ -1,9 +1,9 @@
 # SSH PTY Spike Manual Test Notes
 
 This spike connects directly to a user-provided SSH host, authenticates with a
-password, requests an `xterm-256color` PTY, opens a shell, streams SSH channel
-bytes into ConnectBot `termlib`, and sends terminal input bytes back to the SSH
-session unchanged.
+password or imported SSH private key, requests an `xterm-256color` PTY, opens a
+shell, streams SSH channel bytes into ConnectBot `termlib`, and sends terminal
+input bytes back to the SSH session unchanged.
 
 ## Stack Decision
 
@@ -21,23 +21,32 @@ session unchanged.
 ## Security Boundary
 
 - Passwords are held only in the running Compose state for this spike.
-- Private key UI and secure key storage are not implemented.
-- Minimal host records are persisted with host, port, and username only.
+- Imported private keys and optional passphrases are persisted only through the
+  Android Keystore-backed encrypted private-key store. The Keystore key requires
+  recent device credential or strong biometric authentication before use.
+- Minimal host records are persisted with host, port, username, timestamps, and
+  an optional private-key id reference. Host records do not contain private key
+  bytes, passphrases, passwords, or tokens.
+- Private-key metadata and material are separate from host records. Deleting a
+  host does not delete imported key material; deleting a key removes its
+  encrypted material and metadata.
 - The first presented host key for a host/port is shown in a fingerprint
   confirmation prompt before authentication. Accepting pins the key in local
   known-hosts storage; rejecting fails the connection closed.
 - A later different key for the same host/port is rejected before password
   authentication. Delete the saved host before intentionally trusting a changed
   server key.
-- Do not use this spike with production private keys; private-key import and
-  encrypted key storage are still deferred.
+- Do not paste private keys into logs, issue comments, screenshots, or bug
+  reports. The app should not log private keys, passphrases, passwords, or
+  tokens.
 
 ## Setup
 
 1. Build and install the debug APK.
 2. Launch Tether Go.
 3. Enter host, port, username, and password, then tap `Save host` if you want to
-   keep the host record before connecting.
+   keep the host record before connecting. For private-key auth, use the
+   private-key flow below before connecting.
 4. Tap `Connect`.
 5. On first connect to a host/port, compare the displayed SHA-256 host-key
    fingerprint with a trusted source. For an OpenSSH server, one check is:
@@ -88,6 +97,66 @@ Expected:
   SHA-256 fingerprints.
 - Deleting the saved host removes the pin when no other saved host record uses
   that host/port.
+
+## Private-Key Import and Auth
+
+Import:
+
+1. Tap `Private key`, then `Import key`.
+2. Enter a label and paste an existing PEM private key, such as an OpenSSH key
+   beginning with `-----BEGIN OPENSSH PRIVATE KEY-----`.
+3. Enter the key passphrase when the key is encrypted and you want Tether Go to
+   reuse it for auth.
+4. Tap `Import`.
+
+Expected:
+
+- A new key chip appears with the label and is selected for private-key auth.
+- Invalid PEM input is rejected before it is stored.
+- Private key bytes and passphrase text do not appear in app logs.
+- If the device has not been recently unlocked with a credential or strong
+  biometric, encrypted key reads may fail until it is unlocked again.
+
+Host selection:
+
+1. Select an imported key.
+2. Enter host, port, and username.
+3. Tap `Save host`.
+4. Select another host, then reselect the saved host.
+
+Expected:
+
+- The saved host restores private-key auth when the referenced key still exists.
+- The host record stores only the key id reference, not key material.
+- If the key was deleted, the host falls back to password auth and reports that
+  the saved private key is unavailable.
+
+Private-key connection:
+
+1. Select an imported key for a test SSH account that accepts that key.
+2. Tap `Connect`.
+3. Accept the host-key fingerprint only after comparing it with a trusted
+   source if this is the first connection to that host/port.
+
+Expected:
+
+- Host-key TOFU behavior is unchanged: unknown keys prompt, rejected keys fail,
+  and changed keys fail closed before authentication.
+- Authentication uses the selected private key and optional passphrase.
+- The shell opens in an `xterm-256color` PTY and terminal input/output remains
+  byte-preserving.
+
+Delete key:
+
+1. Disconnect.
+2. Select an imported key and tap `Delete key`.
+3. Try to connect with private-key auth without selecting another key.
+
+Expected:
+
+- The key is removed from the key list.
+- Connecting with private-key auth is disabled until another key is selected or
+  imported.
 
 ## Bash
 

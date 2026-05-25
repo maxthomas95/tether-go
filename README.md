@@ -10,16 +10,21 @@ Tether Go is the "on the go" surface in the Tether product family:
 
 ## Status
 
-Initial Android scaffold with terminal-renderer, SSH PTY, and host-key TOFU
-spikes. The app now renders a ConnectBot `termlib` terminal, persists minimal
-host records, connects directly to a user-provided SSH host with password auth,
-confirms and pins the first presented host key, requests an `xterm-256color`
-PTY, opens a shell, streams raw SSH channel bytes into the terminal, and routes
-keyboard and quick-bar input back to the remote PTY unchanged.
+Initial Android scaffold with terminal-renderer, SSH PTY, host-key TOFU, and
+private-key import/storage spikes. The app now renders a ConnectBot `termlib`
+terminal, persists minimal host records, imports existing SSH private keys into
+Android Keystore-backed encrypted local storage, connects directly to a
+user-provided SSH host with password or private-key auth, confirms and pins the
+first presented host key, requests an `xterm-256color` PTY, opens a shell,
+streams raw SSH channel bytes into the terminal, and routes keyboard and
+quick-bar input back to the remote PTY unchanged.
 
-No polished session manager, private-key import, encrypted key storage, or
-production product UI has landed yet. Passwords remain temporary in-memory
-connection input and are not persisted.
+No polished session manager or production product UI has landed yet. Passwords
+remain temporary in-memory connection input and are not persisted. Imported
+private keys and optional passphrases are stored separately from host records
+and are not written to plaintext preferences or logs. The Android Keystore key
+used for encrypted storage requires recent device credential or strong biometric
+authentication before use.
 
 The initial product direction is intentionally small:
 

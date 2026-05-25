@@ -8,14 +8,15 @@ Status legend: **[planned]** not started, **[in progress]** active, **[blocked]*
 
 - [in progress] Android stack decision and technical spike: native ConnectBot
   `termlib` renderer landed and direct SSH PTY wiring is under validation.
-- [in progress] Direct SSH connection to a reachable host with password auth.
+- [in progress] Direct SSH connection to a reachable host with password and
+  private-key auth.
 - [in progress] Remote PTY allocation with `xterm-256color`.
 - [in progress] Terminal renderer with real TUI clarity: fake PTY renderer
   pressure test landed; real TUI validation is documented for SSH.
 - [in progress] Keyboard and quick-bar input routed to PTY stdin unchanged.
 - [done] Minimal persisted host records, host key TOFU, and pinned known-hosts
   store.
-- [planned] Private key import with encrypted local storage.
+- [done] Private key import with encrypted local storage.
 - [planned] New session flow: host, working directory, CLI tool, launch flags, env vars.
 - [planned] Phone-owned session list and full-screen terminal view.
 - [planned] Basic phone-owned notifications for observed sessions.

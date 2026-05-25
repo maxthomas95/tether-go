@@ -42,5 +42,5 @@ commands until the signing approach exists.
 
 Build the debug APK with `./gradlew assembleDebug`, install it on an emulator or
 device, launch Tether Go, and confirm the terminal screen renders. SSH terminal
-rendering and host-key verification have separate manual checks in
-`docs/SSH_PTY_SPIKE_TESTING.md`; private-key secure storage is still deferred.
+rendering, host-key verification, and private-key import/auth have separate
+manual checks in `docs/SSH_PTY_SPIKE_TESTING.md`.
