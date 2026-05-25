@@ -19,6 +19,8 @@ streaming into a mobile terminal while preserving Tether's dumb-pipe invariant.
 - Application ID and namespace `com.tether.go`.
 - GitHub Actions runs `./gradlew test`, `./gradlew lint`, and
   `./gradlew assembleDebug` on pull requests and pushes to `main`.
+- SonarQube Cloud is configured for CI-based Gradle scanner analysis under
+  project key `maxthomas95_tether-go`.
 
 ## Core Invariant
 

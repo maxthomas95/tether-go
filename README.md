@@ -66,8 +66,9 @@ Use the Gradle wrapper for local development:
 ```
 
 The GitHub Actions workflow runs the same checks on pull requests and pushes to
-`main`. Release signing is not configured yet, so release APK commands are still
-out of scope.
+`main`, then runs CI-based SonarQube Cloud analysis with the Gradle scanner.
+Release signing is not configured yet, so release APK commands are still out of
+scope.
 
 ## License
 

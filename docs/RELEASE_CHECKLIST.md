@@ -8,7 +8,8 @@ debug and public releases.
 - [x] Android stack selected and documented.
 - [x] Gradle project committed.
 - [x] Debug build command documented.
-- [ ] SonarCloud project imported and first analysis passing.
+- [ ] SonarQube Cloud project imported, `SONAR_TOKEN` configured, automatic
+  analysis disabled, and first CI-based analysis passing.
 - [ ] License notices for Android dependencies started.
 - [x] Basic smoke test documented.
 
