@@ -143,6 +143,10 @@ class KnownHostsVerifierTest {
     override fun putString(key: String, value: String) {
       values[key] = value
     }
+
+    override fun removeString(key: String) {
+      values.remove(key)
+    }
   }
 
   private companion object {

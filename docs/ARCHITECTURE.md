@@ -4,16 +4,19 @@
 
 This repository contains the initial Android scaffold plus focused terminal and
 SSH PTY spikes. The app module renders a ConnectBot `termlib` terminal and can
-connect directly to a user-provided SSH host with password auth, request an
-`xterm-256color` PTY, open a shell, stream raw SSH channel bytes into the
-terminal, and route keyboard and quick-bar input back to the SSH channel
-unchanged.
+connect directly to a user-provided SSH host with password or private-key auth,
+request an `xterm-256color` PTY, open a shell, stream raw SSH channel bytes
+into the terminal, and route keyboard and quick-bar input back to the SSH
+channel unchanged.
 
-The current spike also persists minimal host records and pinned known-host keys.
-An unknown host key pauses first connection for explicit SHA-256 fingerprint
-confirmation, accepted keys are pinned per host/port, and changed keys fail
-closed before authentication. No polished session management, private-key
-import, secure key storage, or product session UI has landed yet.
+The current spike also persists minimal host records, pinned known-host keys,
+and imported SSH private keys. An unknown host key pauses first connection for
+explicit SHA-256 fingerprint confirmation, accepted keys are pinned per
+host/port, and changed keys fail closed before authentication. Private keys and
+optional passphrases are stored through an Android Keystore-backed AES-GCM
+wrapper around local preferences; host records store only a selected private-key
+id reference. No polished session management or product session UI has landed
+yet.
 
 ## Scaffold Stack
 
@@ -104,7 +107,8 @@ Renderer validation from PR #4:
 
 Current SSH PTY validation path:
 
-- Direct SSH connection uses password auth and persisted host-key TOFU.
+- Direct SSH connection uses password auth or imported private-key auth with
+  persisted host-key TOFU.
 - Unknown host keys show a fingerprint confirmation prompt before
   authentication.
 - Accepted host keys are pinned in local known-hosts storage keyed by host and
@@ -115,7 +119,8 @@ Current SSH PTY validation path:
   input/output through the same native terminal path.
 - Run real TUIs such as `bash`, `vim`, `top`, Claude, Codex, and OpenCode.
 - Test Android lifecycle behavior with a live SSH channel.
-- Add secure private-key storage before using production private keys.
+- Validate private-key import and auth against representative unencrypted and
+  passphrase-protected keys before using production private keys.
 
 ## Leading SSH Spike
 
@@ -156,6 +161,17 @@ Durable shared sessions are a later backend/agent problem, not a v0.1 requiremen
   encoded public key, SHA-256 fingerprint, and acceptance time. Host records and
   host keys are not secrets; passwords remain in transient UI state and are not
   persisted.
+- Imported private keys are stored in `tether_go_ssh_private_keys` preferences
+  only after AES-GCM encryption with a symmetric key generated and held by
+  Android Keystore under the app alias. The Keystore key requires recent device
+  credential or strong biometric authentication before use. Optional
+  private-key passphrases use the same encrypted store.
+- Host records stay in the non-secret host store and include only host, port,
+  username, timestamps, and an optional private-key id. They do not contain
+  private key bytes or passphrases.
+- Android backup and device-transfer extraction are disabled for shared
+  preferences in `data_extraction_rules.xml`, and `allowBackup` is disabled in
+  the manifest so encrypted blobs are not restored without their Keystore key.
 - Fail closed on host key changes.
 - Private key material encrypted at rest.
 - No plaintext tokens, passphrases, private keys, or Vault material in logs or config.

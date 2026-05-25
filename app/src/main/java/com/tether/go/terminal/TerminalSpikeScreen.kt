@@ -46,11 +46,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tether.go.ssh.AndroidSshPrivateKeyStore
+import com.tether.go.ssh.SecureStorageException
 import com.tether.go.ssh.SshAuthMaterial
 import com.tether.go.ssh.SshConnectionRequest
 import com.tether.go.ssh.SshConnectionTarget
 import com.tether.go.ssh.SshHostKeyPrompt
 import com.tether.go.ssh.SshHostRecord
+import com.tether.go.ssh.SshPrivateKeyImportException
+import com.tether.go.ssh.SshPrivateKeyMetadata
 import com.tether.go.ssh.SshTerminalSession
 import com.tether.go.ssh.SshTerminalState
 import com.tether.go.ssh.SharedPreferencesSshHostStore
@@ -93,12 +97,18 @@ private val TerminalAnsiPalette = intArrayOf(
   0xFFFFFFFF.toInt(),
 )
 
+private enum class SshAuthMode {
+  Password,
+  PrivateKey,
+}
+
 @Composable
 fun TerminalSpikeScreen() {
   val inputBuffer = remember { TerminalInputBuffer() }
   val coroutineScope = rememberCoroutineScope()
   val appContext = LocalContext.current.applicationContext
   val hostStore = remember(appContext) { SharedPreferencesSshHostStore(appContext) }
+  val privateKeyStore = remember(appContext) { AndroidSshPrivateKeyStore(appContext) }
   val sshSession = remember(coroutineScope, hostStore) {
     SshTerminalSession(
       scope = coroutineScope,
@@ -112,6 +122,19 @@ fun TerminalSpikeScreen() {
   var forcedSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
   var savedHosts by remember(hostStore) { mutableStateOf(hostStore.loadHosts()) }
   var selectedHostId by remember { mutableStateOf<String?>(null) }
+  var privateKeyError by remember { mutableStateOf<String?>(null) }
+  var savedPrivateKeys by remember(privateKeyStore) {
+    mutableStateOf(
+      runCatching { privateKeyStore.loadPrivateKeys() }
+        .getOrElse {
+          privateKeyError = "Private key storage could not be read"
+          emptyList()
+        },
+    )
+  }
+  var selectedPrivateKeyId by remember { mutableStateOf<String?>(null) }
+  var authMode by remember { mutableStateOf(SshAuthMode.Password) }
+  var showPrivateKeyImport by remember { mutableStateOf(false) }
   var host by remember { mutableStateOf("") }
   var port by remember { mutableStateOf("22") }
   var username by remember { mutableStateOf("") }
@@ -167,6 +190,7 @@ fun TerminalSpikeScreen() {
       username = trimmedUsername,
       createdAtMillis = existingHost?.createdAtMillis ?: now,
       updatedAtMillis = now,
+      privateKeyId = selectedPrivateKeyId.takeIf { authMode == SshAuthMode.PrivateKey },
     )
     savedHosts = hostStore.upsertHost(record)
     selectedHostId = record.id
@@ -186,6 +210,10 @@ fun TerminalSpikeScreen() {
       password = password,
       savedHosts = savedHosts,
       selectedHostId = selectedHostId,
+      savedPrivateKeys = savedPrivateKeys,
+      selectedPrivateKeyId = selectedPrivateKeyId,
+      authMode = authMode,
+      privateKeyError = privateKeyError,
       terminalSize = terminalSize,
       inputSnapshot = inputSnapshot,
       connectionState = connectionState,
@@ -193,6 +221,31 @@ fun TerminalSpikeScreen() {
       onPortChange = { port = it },
       onUsernameChange = { username = it },
       onPasswordChange = { password = it },
+      onAuthModeChange = {
+        authMode = it
+        privateKeyError = null
+      },
+      onImportPrivateKey = {
+        privateKeyError = null
+        showPrivateKeyImport = true
+      },
+      onSelectPrivateKey = {
+        selectedPrivateKeyId = it
+        authMode = SshAuthMode.PrivateKey
+        privateKeyError = null
+      },
+      onDeletePrivateKey = {
+        selectedPrivateKeyId?.let { keyId ->
+          runCatching {
+            savedPrivateKeys = privateKeyStore.deletePrivateKey(keyId)
+          }.onSuccess {
+            selectedPrivateKeyId = null
+            privateKeyError = null
+          }.onFailure {
+            privateKeyError = "Private key storage could not be updated"
+          }
+        }
+      },
       onSaveHost = {
         parseSshPort(port)?.let { persistCurrentHost(it) }
       },
@@ -201,6 +254,16 @@ fun TerminalSpikeScreen() {
         host = record.host
         port = record.port.toString()
         username = record.username
+        val savedKeyId = record.privateKeyId
+        if (savedKeyId != null && savedPrivateKeys.any { it.id == savedKeyId }) {
+          selectedPrivateKeyId = savedKeyId
+          authMode = SshAuthMode.PrivateKey
+          privateKeyError = null
+        } else {
+          selectedPrivateKeyId = null
+          authMode = SshAuthMode.Password
+          privateKeyError = if (savedKeyId == null) null else "Saved private key is unavailable"
+        }
       },
       onDeleteHost = {
         selectedHostId?.let { hostId ->
@@ -210,6 +273,26 @@ fun TerminalSpikeScreen() {
       },
       onConnect = {
         val parsedPort = parseSshPort(port) ?: return@SshConnectionPanel
+        val auth = when (authMode) {
+          SshAuthMode.Password -> SshAuthMaterial.Password(password)
+          SshAuthMode.PrivateKey -> {
+            val keyId = selectedPrivateKeyId ?: return@SshConnectionPanel
+            val keyMaterial = runCatching { privateKeyStore.loadPrivateKeyMaterial(keyId) }
+              .getOrElse {
+                privateKeyError = "Private key storage could not be read"
+                return@SshConnectionPanel
+              }
+            if (keyMaterial == null) {
+              privateKeyError = "Selected private key is unavailable"
+              return@SshConnectionPanel
+            }
+            SshAuthMaterial.PrivateKey(
+              privateKeyData = keyMaterial.privateKeyData,
+              passphrase = keyMaterial.passphrase,
+            )
+          }
+        }
+        privateKeyError = null
         persistCurrentHost(parsedPort)
         sshSession.connect(
           request = SshConnectionRequest(
@@ -218,7 +301,7 @@ fun TerminalSpikeScreen() {
               port = parsedPort,
               username = username.trim(),
             ),
-            auth = SshAuthMaterial.Password(password),
+            auth = auth,
           ),
           terminalSize = terminalSize,
           output = terminal::writeInput,
@@ -228,6 +311,42 @@ fun TerminalSpikeScreen() {
         sshSession.disconnect()
       },
     )
+
+    if (showPrivateKeyImport) {
+      PrivateKeyImportDialog(
+        error = privateKeyError,
+        onDismiss = {
+          privateKeyError = null
+          showPrivateKeyImport = false
+        },
+        onImport = { label, privateKeyData, passphrase ->
+          runCatching {
+            privateKeyStore.importPrivateKey(
+              label = label,
+              privateKeyData = privateKeyData,
+              passphrase = passphrase,
+            )
+          }.onSuccess { metadata ->
+            val refreshedKeys = runCatching { privateKeyStore.loadPrivateKeys() }
+              .getOrElse {
+                privateKeyError = "Private key storage could not be read"
+                return@onSuccess
+              }
+            savedPrivateKeys = refreshedKeys
+            selectedPrivateKeyId = metadata.id
+            authMode = SshAuthMode.PrivateKey
+            privateKeyError = null
+            showPrivateKeyImport = false
+          }.onFailure { error ->
+            privateKeyError = when (error) {
+              is SshPrivateKeyImportException -> error.message
+              is SecureStorageException -> "Private key storage could not be updated"
+              else -> "Private key could not be imported"
+            }
+          }
+        },
+      )
+    }
 
     connectionState.hostKeyPrompt?.let { prompt ->
       HostKeyPromptDialog(
@@ -285,6 +404,10 @@ private fun SshConnectionPanel(
   password: String,
   savedHosts: List<SshHostRecord>,
   selectedHostId: String?,
+  savedPrivateKeys: List<SshPrivateKeyMetadata>,
+  selectedPrivateKeyId: String?,
+  authMode: SshAuthMode,
+  privateKeyError: String?,
   terminalSize: TerminalDimensions,
   inputSnapshot: TerminalInputSnapshot,
   connectionState: SshTerminalState,
@@ -292,6 +415,10 @@ private fun SshConnectionPanel(
   onPortChange: (String) -> Unit,
   onUsernameChange: (String) -> Unit,
   onPasswordChange: (String) -> Unit,
+  onAuthModeChange: (SshAuthMode) -> Unit,
+  onImportPrivateKey: () -> Unit,
+  onSelectPrivateKey: (String) -> Unit,
+  onDeletePrivateKey: () -> Unit,
   onSaveHost: () -> Unit,
   onSelectHost: (SshHostRecord) -> Unit,
   onDeleteHost: () -> Unit,
@@ -299,9 +426,13 @@ private fun SshConnectionPanel(
   onDisconnect: () -> Unit,
 ) {
   val portInvalid = port.isNotBlank() && parseSshPort(port) == null
+  val hasAuthMaterial = when (authMode) {
+    SshAuthMode.Password -> password.isNotEmpty()
+    SshAuthMode.PrivateKey -> selectedPrivateKeyId != null
+  }
   val canConnect = host.isNotBlank() &&
     username.isNotBlank() &&
-    password.isNotEmpty() &&
+    hasAuthMaterial &&
     !portInvalid &&
     !connectionState.isConnected &&
     !connectionState.isBusy
@@ -384,11 +515,22 @@ private fun SshConnectionPanel(
         value = password,
         onValueChange = onPasswordChange,
         label = "Password",
-        enabled = fieldsEnabled,
+        enabled = fieldsEnabled && authMode == SshAuthMode.Password,
         visualTransformation = PasswordVisualTransformation(),
         modifier = Modifier.width(170.dp),
       )
     }
+
+    PrivateKeyControls(
+      savedPrivateKeys = savedPrivateKeys,
+      selectedPrivateKeyId = selectedPrivateKeyId,
+      authMode = authMode,
+      fieldsEnabled = fieldsEnabled,
+      onAuthModeChange = onAuthModeChange,
+      onImportPrivateKey = onImportPrivateKey,
+      onSelectPrivateKey = onSelectPrivateKey,
+      onDeletePrivateKey = onDeletePrivateKey,
+    )
 
     HostRecordControls(
       savedHosts = savedHosts,
@@ -400,7 +542,10 @@ private fun SshConnectionPanel(
       onDeleteHost = onDeleteHost,
     )
 
-    TerminalStatusLine(connectionState = connectionState)
+    TerminalStatusLine(
+      connectionState = connectionState,
+      privateKeyError = privateKeyError,
+    )
   }
 }
 
@@ -479,6 +624,209 @@ private fun HostRecordControls(
       }
     }
   }
+}
+
+@Composable
+private fun PrivateKeyControls(
+  savedPrivateKeys: List<SshPrivateKeyMetadata>,
+  selectedPrivateKeyId: String?,
+  authMode: SshAuthMode,
+  fieldsEnabled: Boolean,
+  onAuthModeChange: (SshAuthMode) -> Unit,
+  onImportPrivateKey: () -> Unit,
+  onSelectPrivateKey: (String) -> Unit,
+  onDeletePrivateKey: () -> Unit,
+) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .horizontalScroll(rememberScrollState()),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    AuthModeButton(
+      label = "Password",
+      selected = authMode == SshAuthMode.Password,
+      enabled = fieldsEnabled,
+      onClick = { onAuthModeChange(SshAuthMode.Password) },
+    )
+    AuthModeButton(
+      label = "Private key",
+      selected = authMode == SshAuthMode.PrivateKey,
+      enabled = fieldsEnabled,
+      onClick = { onAuthModeChange(SshAuthMode.PrivateKey) },
+    )
+    FilledTonalButton(
+      onClick = onImportPrivateKey,
+      enabled = fieldsEnabled,
+      modifier = Modifier.height(34.dp),
+      shape = RoundedCornerShape(6.dp),
+      colors = ButtonDefaults.filledTonalButtonColors(
+        containerColor = Color(0xFF1D3A3F),
+        contentColor = AccentCyan,
+        disabledContainerColor = Color(0xFF20262C),
+        disabledContentColor = Color(0xFF64706C),
+      ),
+      contentPadding = ButtonDefaults.TextButtonContentPadding,
+    ) {
+      Text(text = "Import key", fontSize = 12.sp)
+    }
+    FilledTonalButton(
+      onClick = onDeletePrivateKey,
+      enabled = fieldsEnabled && selectedPrivateKeyId != null,
+      modifier = Modifier.height(34.dp),
+      shape = RoundedCornerShape(6.dp),
+      colors = ButtonDefaults.filledTonalButtonColors(
+        containerColor = Color(0xFF33201F),
+        contentColor = AccentRed,
+        disabledContainerColor = Color(0xFF20262C),
+        disabledContentColor = Color(0xFF64706C),
+      ),
+      contentPadding = ButtonDefaults.TextButtonContentPadding,
+    ) {
+      Text(text = "Delete key", fontSize = 12.sp)
+    }
+
+    savedPrivateKeys.forEach { metadata ->
+      val selected = metadata.id == selectedPrivateKeyId
+      FilledTonalButton(
+        onClick = { onSelectPrivateKey(metadata.id) },
+        enabled = fieldsEnabled,
+        modifier = Modifier
+          .height(34.dp)
+          .sizeIn(minWidth = 112.dp),
+        shape = RoundedCornerShape(6.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+          containerColor = if (selected) Color(0xFF253B2A) else Color(0xFF20262C),
+          contentColor = if (selected) AccentGreen else TerminalForeground,
+          disabledContainerColor = Color(0xFF20262C),
+          disabledContentColor = Color(0xFF64706C),
+        ),
+        contentPadding = ButtonDefaults.TextButtonContentPadding,
+      ) {
+        Text(
+          text = metadata.label,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          fontSize = 12.sp,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun AuthModeButton(
+  label: String,
+  selected: Boolean,
+  enabled: Boolean,
+  onClick: () -> Unit,
+) {
+  FilledTonalButton(
+    onClick = onClick,
+    enabled = enabled,
+    modifier = Modifier.height(34.dp),
+    shape = RoundedCornerShape(6.dp),
+    colors = ButtonDefaults.filledTonalButtonColors(
+      containerColor = if (selected) Color(0xFF253B2A) else Color(0xFF20262C),
+      contentColor = if (selected) AccentGreen else TerminalForeground,
+      disabledContainerColor = Color(0xFF20262C),
+      disabledContentColor = Color(0xFF64706C),
+    ),
+    contentPadding = ButtonDefaults.TextButtonContentPadding,
+  ) {
+    Text(text = label, fontSize = 12.sp)
+  }
+}
+
+@Composable
+private fun PrivateKeyImportDialog(
+  error: String?,
+  onDismiss: () -> Unit,
+  onImport: (label: String, privateKeyData: String, passphrase: String?) -> Unit,
+) {
+  var label by remember { mutableStateOf("") }
+  var privateKeyData by remember { mutableStateOf("") }
+  var passphrase by remember { mutableStateOf("") }
+  val canImport = label.isNotBlank() && privateKeyData.isNotBlank()
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Text(text = "Import SSH Private Key")
+    },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SpikeTextField(
+          value = label,
+          onValueChange = { label = it },
+          label = "Label",
+          enabled = true,
+          modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+          value = privateKeyData,
+          onValueChange = { privateKeyData = it },
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 130.dp, max = 220.dp),
+          label = {
+            Text(text = "Private key")
+          },
+          textStyle = MaterialTheme.typography.bodySmall.copy(
+            color = TerminalForeground,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+          ),
+          colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = TerminalForeground,
+            unfocusedTextColor = TerminalForeground,
+            focusedBorderColor = AccentCyan,
+            unfocusedBorderColor = Color(0xFF3A4249),
+            cursorColor = AccentCyan,
+            focusedLabelColor = AccentCyan,
+            unfocusedLabelColor = MutedText,
+          ),
+        )
+        SpikeTextField(
+          value = passphrase,
+          onValueChange = { passphrase = it },
+          label = "Passphrase",
+          enabled = true,
+          visualTransformation = PasswordVisualTransformation(),
+          modifier = Modifier.fillMaxWidth(),
+        )
+        if (error != null) {
+          Text(
+            text = error,
+            color = AccentRed,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(
+        enabled = canImport,
+        onClick = {
+          onImport(
+            label,
+            privateKeyData,
+            passphrase.takeIf { it.isNotEmpty() },
+          )
+        },
+      ) {
+        Text(text = "Import")
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(text = "Cancel")
+      }
+    },
+  )
 }
 
 @Composable
@@ -599,8 +947,12 @@ private fun ConnectionActionButton(
 }
 
 @Composable
-private fun TerminalStatusLine(connectionState: SshTerminalState) {
+private fun TerminalStatusLine(
+  connectionState: SshTerminalState,
+  privateKeyError: String?,
+) {
   val statusColor = when {
+    privateKeyError != null -> AccentRed
     connectionState.error != null -> AccentRed
     connectionState.isConnected -> AccentGreen
     connectionState.isBusy -> AccentAmber
@@ -614,7 +966,7 @@ private fun TerminalStatusLine(connectionState: SshTerminalState) {
   }
 
   Text(
-    text = connectionState.error ?: text,
+    text = privateKeyError ?: connectionState.error ?: text,
     modifier = Modifier.fillMaxWidth(),
     color = statusColor,
     style = MaterialTheme.typography.labelMedium,

@@ -16,6 +16,7 @@ data class SshHostRecord(
   val username: String,
   val createdAtMillis: Long,
   val updatedAtMillis: Long,
+  val privateKeyId: String? = null,
 ) {
   val displayName: String
     get() = "$username@$host:$port"
@@ -59,6 +60,7 @@ interface SshHostStore {
 interface StringPreferenceStore {
   fun getString(key: String): String?
   fun putString(key: String, value: String)
+  fun removeString(key: String)
 }
 
 open class PreferenceBackedSshHostStore(
@@ -134,7 +136,7 @@ class SharedPreferencesSshHostStore(
   ),
 )
 
-private class SharedPreferencesStringStore(
+internal class SharedPreferencesStringStore(
   private val sharedPreferences: SharedPreferences,
 ) : StringPreferenceStore {
   override fun getString(key: String): String? =
@@ -142,6 +144,10 @@ private class SharedPreferencesStringStore(
 
   override fun putString(key: String, value: String) {
     sharedPreferences.edit().putString(key, value).apply()
+  }
+
+  override fun removeString(key: String) {
+    sharedPreferences.edit().remove(key).apply()
   }
 }
 
@@ -160,11 +166,12 @@ private fun List<SshHostRecord>.encodeHostRecords(): String =
       record.username,
       record.createdAtMillis.toString(),
       record.updatedAtMillis.toString(),
+      record.privateKeyId.orEmpty(),
     )
   }
 
 private fun String?.decodeHostRecords(): List<SshHostRecord> =
-  decodeLines(fieldCount = 6).mapNotNull { fields ->
+  decodeLines(fieldCounts = intArrayOf(6, 7)).mapNotNull { fields ->
     val port = fields[2].toIntOrNull() ?: return@mapNotNull null
     val createdAtMillis = fields[4].toLongOrNull() ?: return@mapNotNull null
     val updatedAtMillis = fields[5].toLongOrNull() ?: return@mapNotNull null
@@ -175,6 +182,7 @@ private fun String?.decodeHostRecords(): List<SshHostRecord> =
       username = fields[3],
       createdAtMillis = createdAtMillis,
       updatedAtMillis = updatedAtMillis,
+      privateKeyId = fields.getOrNull(6)?.takeIf { it.isNotBlank() },
     )
   }
 
@@ -191,7 +199,7 @@ private fun List<PinnedHostKey>.encodePinnedHostKeys(): String =
   }
 
 private fun String?.decodePinnedHostKeys(): List<PinnedHostKey> =
-  decodeLines(fieldCount = 6).mapNotNull { fields ->
+  decodeLines(fieldCounts = intArrayOf(6)).mapNotNull { fields ->
     val port = fields[1].toIntOrNull() ?: return@mapNotNull null
     val acceptedAtMillis = fields[5].toLongOrNull() ?: return@mapNotNull null
     PinnedHostKey(
@@ -206,17 +214,17 @@ private fun String?.decodePinnedHostKeys(): List<PinnedHostKey> =
     )
   }
 
-private fun String?.decodeLines(fieldCount: Int): List<List<String>> {
+private fun String?.decodeLines(fieldCounts: IntArray): List<List<String>> {
   if (isNullOrBlank()) return emptyList()
   return lineSequence()
     .mapNotNull { line ->
       val fields = line.split('\t')
-      if (fields.size != fieldCount) return@mapNotNull null
+      if (fields.size !in fieldCounts) return@mapNotNull null
       fields.mapNotNull { encodedField ->
         runCatching {
           String(Base64.getUrlDecoder().decode(encodedField), StandardCharsets.UTF_8)
         }.getOrNull()
-      }.takeIf { it.size == fieldCount }
+      }.takeIf { it.size == fields.size }
     }
     .toList()
 }
