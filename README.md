@@ -10,7 +10,9 @@ Tether Go is the "on the go" surface in the Tether product family:
 
 ## Status
 
-Early repository setup. No Android implementation has landed yet.
+Initial Android scaffold. The app currently builds a placeholder Android screen
+only; no SSH transport, terminal renderer, session management, storage, or
+product UI has landed yet.
 
 The initial product direction is intentionally small:
 
@@ -47,15 +49,26 @@ The initial product direction is intentionally small:
 
 ## Development
 
-No build system is committed yet. The first implementation PR should decide the Android stack and add the corresponding Gradle commands.
+The initial scaffold uses Kotlin + Jetpack Compose with:
 
-Expected future commands:
+- Android Gradle Plugin 9.2.0 and Gradle 9.4.1.
+- AGP 9 built-in Kotlin support plus the Compose compiler plugin.
+- Jetpack Compose BOM 2026.05.00.
+- Compile/target SDK 36, min SDK 26.
+- Application ID and namespace `com.tether.go`.
+
+Use the Gradle wrapper for local development:
 
 ```bash
 ./gradlew test
 ./gradlew lint
 ./gradlew assembleDebug
 ```
+
+The GitHub Actions workflow runs the same checks on pull requests and pushes to
+`main`, then runs CI-based SonarQube Cloud analysis with the Gradle scanner.
+Release signing is not configured yet, so release APK commands are still out of
+scope.
 
 ## License
 

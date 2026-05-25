@@ -1,0 +1,9 @@
+<resources>
+  <style name="Theme.TetherGo" parent="android:style/Theme.Material.NoActionBar">
+    <item name="android:colorAccent">@color/tether_go_primary</item>
+    <item name="android:fontFamily">sans</item>
+    <item name="android:windowActionBar">false</item>
+    <item name="android:windowBackground">@color/tether_go_background</item>
+    <item name="android:windowNoTitle">true</item>
+  </style>
+</resources>
