@@ -8,9 +8,11 @@ Tether Go is an Android client for managing SSH-backed agent CLI sessions from a
 - **Tether Go** - mobile, remote-first session client.
 - **VoidCode VR** - spatial VR session manager.
 
-**Status:** Initial Android scaffold. The app currently builds a placeholder
-Compose screen only; no SSH transport, terminal renderer, session management,
-storage, or product UI has landed yet.
+**Status:** Initial Android scaffold with the first terminal-renderer spike. The
+app currently builds a ConnectBot `termlib` terminal screen fed by a high-volume
+fake PTY byte stream with keyboard and quick-bar input captured in a local test
+buffer. No SSH transport, session management, storage, or product UI has landed
+yet.
 
 ## Core Principle
 
@@ -38,15 +40,19 @@ Current scaffold:
 - Compile/target SDK 36, min SDK 26.
 - Application ID and namespace `com.tether.go`.
 
-Remaining leading option for the terminal spike:
+Selected path for the first terminal-renderer spike:
+- ConnectBot `termlib` native Compose terminal component backed by `libvterm`.
+- Fake PTY byte stream only; no SSH transport in this spike.
+
+Remaining leading option for the SSH PTY spike:
 - Native SSH library with PTY support.
-- Native terminal component if fidelity is good enough.
+- ConnectBot `termlib` renderer unless real-TUI validation proves otherwise.
 
 Fallback:
 - Native SSH bridge plus xterm.js in Android WebView.
 
-Do not add SSH, terminal, persistence, or session UI until a focused
-implementation PR is ready to validate and own that behavior.
+Do not add SSH, persistence, or session UI until a focused implementation PR is
+ready to validate and own that behavior.
 
 ## Project Structure
 
