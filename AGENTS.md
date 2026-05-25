@@ -121,3 +121,4 @@ Multiple agent sessions may be active simultaneously. Follow these rules:
 - Implement SSH host-key TOFU from the first real SSH implementation.
 - Do not add public relay behavior without a separate security design.
 - Keep Coder, Vault, desktop API, and local Android PTY as later scoped work unless the roadmap changes.
+- Keep SonarCloud/quality-gate configuration current once Android code and CI exist. Do not require status checks that do not exist yet.

@@ -7,6 +7,7 @@ This checklist is a placeholder until the Android project exists.
 - [ ] Android stack selected and documented.
 - [ ] Gradle project committed.
 - [ ] Debug build command documented.
+- [ ] SonarCloud project imported and first analysis passing.
 - [ ] License notices for Android dependencies started.
 - [ ] Basic smoke test documented.
 
@@ -19,6 +20,7 @@ This checklist is a placeholder until the Android project exists.
 - [ ] Private key storage reviewed.
 - [ ] Logs checked for secret redaction.
 - [ ] Release APK built from a clean checkout.
+- [ ] Required branch checks reflect the active CI/SonarCloud jobs.
 - [ ] GitHub Release notes written.
 
 ## Release Commands
