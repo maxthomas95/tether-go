@@ -14,18 +14,24 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,10 +39,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
+import com.tether.go.ssh.SshAuthMaterial
+import com.tether.go.ssh.SshConnectionRequest
+import com.tether.go.ssh.SshConnectionTarget
+import com.tether.go.ssh.SshTerminalSession
+import com.tether.go.ssh.SshTerminalState
+import com.tether.go.ssh.parseSshPort
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.TerminalDimensions
 import org.connectbot.terminal.TerminalEmulator
@@ -44,7 +57,6 @@ import org.connectbot.terminal.TerminalEmulatorFactory
 import org.connectbot.terminal.VTermKey
 
 private const val VTERM_MOD_CTRL = 4
-private const val STREAM_DELAY_MS = 85L
 
 private val AppBackground = Color(0xFF0B0D10)
 private val TerminalBackground = Color(0xFF05080B)
@@ -53,6 +65,7 @@ private val PanelBackground = Color(0xFF151A1F)
 private val AccentCyan = Color(0xFF50D5E8)
 private val AccentGreen = Color(0xFF9BE564)
 private val AccentAmber = Color(0xFFFFC857)
+private val AccentRed = Color(0xFFFF7A70)
 private val MutedText = Color(0xFFA7B4AE)
 
 private val TerminalAnsiPalette = intArrayOf(
@@ -77,11 +90,17 @@ private val TerminalAnsiPalette = intArrayOf(
 @Composable
 fun TerminalSpikeScreen() {
   val inputBuffer = remember { TerminalInputBuffer() }
-  val fakePty = remember { FakePtyByteStream() }
+  val coroutineScope = rememberCoroutineScope()
+  val sshSession = remember(coroutineScope) { SshTerminalSession(coroutineScope) }
+  val connectionState by sshSession.state.collectAsState()
+
   var terminalSize by remember { mutableStateOf(TerminalDimensions(rows = 32, columns = 96)) }
-  var streamRunning by remember { mutableStateOf(true) }
   var showIme by remember { mutableStateOf(false) }
   var forcedSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+  var host by remember { mutableStateOf("") }
+  var port by remember { mutableStateOf("22") }
+  var username by remember { mutableStateOf("") }
+  var password by remember { mutableStateOf("") }
 
   val terminal = remember {
     TerminalEmulatorFactory.create(
@@ -89,26 +108,26 @@ fun TerminalSpikeScreen() {
       initialCols = terminalSize.columns,
       defaultForeground = TerminalForeground,
       defaultBackground = TerminalBackground,
-      onKeyboardInput = inputBuffer::append,
-      onResize = { terminalSize = it },
+      onKeyboardInput = { data ->
+        inputBuffer.append(data)
+        sshSession.sendInput(data)
+      },
+      onResize = {
+        terminalSize = it
+        sshSession.resize(it)
+      },
     )
   }
 
-  LaunchedEffect(terminal) {
+  DisposableEffect(sshSession) {
     terminal.applyColorScheme(
       ansiColors = TerminalAnsiPalette,
       defaultForeground = TerminalForeground.toArgb(),
       defaultBackground = TerminalBackground.toArgb(),
     )
-    terminal.writeInput(fakePty.banner())
-  }
 
-  LaunchedEffect(terminal, streamRunning) {
-    while (true) {
-      if (streamRunning) {
-        terminal.writeInput(fakePty.nextChunk())
-      }
-      delay(STREAM_DELAY_MS)
+    onDispose {
+      sshSession.disconnect()
     }
   }
 
@@ -120,11 +139,36 @@ fun TerminalSpikeScreen() {
       .background(AppBackground)
       .systemBarsPadding(),
   ) {
-    TerminalHeader(
+    SshConnectionPanel(
+      host = host,
+      port = port,
+      username = username,
+      password = password,
       terminalSize = terminalSize,
-      streamRunning = streamRunning,
       inputSnapshot = inputSnapshot,
-      onToggleStream = { streamRunning = !streamRunning },
+      connectionState = connectionState,
+      onHostChange = { host = it },
+      onPortChange = { port = it },
+      onUsernameChange = { username = it },
+      onPasswordChange = { password = it },
+      onConnect = {
+        val parsedPort = parseSshPort(port) ?: return@SshConnectionPanel
+        sshSession.connect(
+          request = SshConnectionRequest(
+            target = SshConnectionTarget(
+              host = host.trim(),
+              port = parsedPort,
+              username = username.trim(),
+            ),
+            auth = SshAuthMaterial.Password(password),
+          ),
+          terminalSize = terminalSize,
+          output = terminal::writeInput,
+        )
+      },
+      onDisconnect = {
+        sshSession.disconnect()
+      },
     )
 
     Box(
@@ -168,58 +212,224 @@ fun TerminalSpikeScreen() {
 }
 
 @Composable
-private fun TerminalHeader(
+private fun SshConnectionPanel(
+  host: String,
+  port: String,
+  username: String,
+  password: String,
   terminalSize: TerminalDimensions,
-  streamRunning: Boolean,
   inputSnapshot: TerminalInputSnapshot,
-  onToggleStream: () -> Unit,
+  connectionState: SshTerminalState,
+  onHostChange: (String) -> Unit,
+  onPortChange: (String) -> Unit,
+  onUsernameChange: (String) -> Unit,
+  onPasswordChange: (String) -> Unit,
+  onConnect: () -> Unit,
+  onDisconnect: () -> Unit,
 ) {
-  Row(
+  val portInvalid = port.isNotBlank() && parseSshPort(port) == null
+  val canConnect = host.isNotBlank() &&
+    username.isNotBlank() &&
+    password.isNotEmpty() &&
+    !portInvalid &&
+    !connectionState.isConnected &&
+    !connectionState.isBusy
+  val fieldsEnabled = !connectionState.isBusy && !connectionState.isConnected
+
+  Column(
     modifier = Modifier
       .fillMaxWidth()
-      .heightIn(min = 58.dp)
       .background(PanelBackground)
-      .padding(horizontal = 14.dp, vertical = 8.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(12.dp),
+      .padding(horizontal = 12.dp, vertical = 8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Column(
-      modifier = Modifier.weight(1f),
-      verticalArrangement = Arrangement.spacedBy(2.dp),
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      Text(
-        text = "Tether Go",
-        color = TerminalForeground,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
-      Text(
-        text = "ConnectBot termlib | ${terminalSize.columns}x${terminalSize.rows} | stdin ${inputSnapshot.totalBytes} B",
-        color = MutedText,
-        style = MaterialTheme.typography.labelMedium,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+      Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+      ) {
+        Text(
+          text = "Tether Go",
+          color = TerminalForeground,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          text = "${terminalSize.columns}x${terminalSize.rows} | stdin ${inputSnapshot.totalBytes} B",
+          color = MutedText,
+          style = MaterialTheme.typography.labelMedium,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+
+      ConnectionActionButton(
+        connectionState = connectionState,
+        canConnect = canConnect,
+        onConnect = onConnect,
+        onDisconnect = onDisconnect,
       )
     }
 
-    FilledTonalButton(
-      onClick = onToggleStream,
-      modifier = Modifier.height(38.dp),
-      shape = RoundedCornerShape(6.dp),
-      colors = ButtonDefaults.filledTonalButtonColors(
-        containerColor = if (streamRunning) Color(0xFF183322) else Color(0xFF332A18),
-        contentColor = if (streamRunning) AccentGreen else AccentAmber,
-      ),
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
     ) {
-      Text(
-        text = if (streamRunning) "Pause" else "Run",
-        maxLines = 1,
-        fontSize = 13.sp,
+      SpikeTextField(
+        value = host,
+        onValueChange = onHostChange,
+        label = "Host",
+        enabled = fieldsEnabled,
+        modifier = Modifier.width(190.dp),
+      )
+      SpikeTextField(
+        value = port,
+        onValueChange = onPortChange,
+        label = "Port",
+        enabled = fieldsEnabled,
+        isError = portInvalid,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.width(88.dp),
+      )
+      SpikeTextField(
+        value = username,
+        onValueChange = onUsernameChange,
+        label = "User",
+        enabled = fieldsEnabled,
+        modifier = Modifier.width(150.dp),
+      )
+      SpikeTextField(
+        value = password,
+        onValueChange = onPasswordChange,
+        label = "Password",
+        enabled = fieldsEnabled,
+        visualTransformation = PasswordVisualTransformation(),
+        modifier = Modifier.width(170.dp),
       )
     }
+
+    TerminalStatusLine(connectionState = connectionState)
   }
+}
+
+@Composable
+private fun SpikeTextField(
+  value: String,
+  onValueChange: (String) -> Unit,
+  label: String,
+  enabled: Boolean,
+  modifier: Modifier = Modifier,
+  isError: Boolean = false,
+  keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+  visualTransformation: PasswordVisualTransformation? = null,
+) {
+  OutlinedTextField(
+    value = value,
+    onValueChange = onValueChange,
+    modifier = modifier.height(58.dp),
+    enabled = enabled,
+    singleLine = true,
+    isError = isError,
+    label = {
+      Text(
+        text = label,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    },
+    keyboardOptions = keyboardOptions,
+    visualTransformation = visualTransformation ?: androidx.compose.ui.text.input.VisualTransformation.None,
+    textStyle = MaterialTheme.typography.bodyMedium.copy(
+      color = TerminalForeground,
+      fontSize = 14.sp,
+    ),
+    colors = OutlinedTextFieldDefaults.colors(
+      focusedTextColor = TerminalForeground,
+      unfocusedTextColor = TerminalForeground,
+      disabledTextColor = MutedText,
+      focusedBorderColor = AccentCyan,
+      unfocusedBorderColor = Color(0xFF3A4249),
+      disabledBorderColor = Color(0xFF293038),
+      cursorColor = AccentCyan,
+      focusedLabelColor = AccentCyan,
+      unfocusedLabelColor = MutedText,
+      disabledLabelColor = Color(0xFF64706C),
+      errorBorderColor = AccentRed,
+      errorLabelColor = AccentRed,
+    ),
+  )
+}
+
+@Composable
+private fun ConnectionActionButton(
+  connectionState: SshTerminalState,
+  canConnect: Boolean,
+  onConnect: () -> Unit,
+  onDisconnect: () -> Unit,
+) {
+  val label = when {
+    connectionState.isConnected -> "Disconnect"
+    connectionState.isBusy -> "Cancel"
+    else -> "Connect"
+  }
+  val enabled = connectionState.isBusy || connectionState.isConnected || canConnect
+
+  FilledTonalButton(
+    onClick = {
+      if (connectionState.isConnected || connectionState.isBusy) {
+        onDisconnect()
+      } else {
+        onConnect()
+      }
+    },
+    enabled = enabled,
+    modifier = Modifier
+      .height(40.dp)
+      .sizeIn(minWidth = 96.dp),
+    shape = RoundedCornerShape(6.dp),
+    colors = ButtonDefaults.filledTonalButtonColors(
+      containerColor = if (connectionState.isConnected) Color(0xFF33201F) else Color(0xFF1D3A3F),
+      contentColor = if (connectionState.isConnected) AccentRed else AccentCyan,
+      disabledContainerColor = Color(0xFF20262C),
+      disabledContentColor = Color(0xFF64706C),
+    ),
+  ) {
+    Text(text = label, maxLines = 1, fontSize = 13.sp)
+  }
+}
+
+@Composable
+private fun TerminalStatusLine(connectionState: SshTerminalState) {
+  val statusColor = when {
+    connectionState.error != null -> AccentRed
+    connectionState.isConnected -> AccentGreen
+    connectionState.isBusy -> AccentAmber
+    else -> MutedText
+  }
+  val hostKey = connectionState.hostKey
+  val text = when {
+    hostKey != null -> "${connectionState.message} | ${hostKey.type} ${hostKey.sha256Fingerprint}"
+    connectionState.targetLabel.isNotBlank() -> "${connectionState.targetLabel} | ${connectionState.message}"
+    else -> connectionState.message
+  }
+
+  Text(
+    text = connectionState.error ?: text,
+    modifier = Modifier.fillMaxWidth(),
+    color = statusColor,
+    style = MaterialTheme.typography.labelMedium,
+    maxLines = 1,
+    overflow = TextOverflow.Ellipsis,
+  )
 }
 
 @Composable
