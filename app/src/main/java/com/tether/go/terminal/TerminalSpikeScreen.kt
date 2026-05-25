@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,14 +49,18 @@ import androidx.compose.ui.unit.sp
 import com.tether.go.ssh.SshAuthMaterial
 import com.tether.go.ssh.SshConnectionRequest
 import com.tether.go.ssh.SshConnectionTarget
+import com.tether.go.ssh.SshHostKeyPrompt
+import com.tether.go.ssh.SshHostRecord
 import com.tether.go.ssh.SshTerminalSession
 import com.tether.go.ssh.SshTerminalState
+import com.tether.go.ssh.SharedPreferencesSshHostStore
 import com.tether.go.ssh.parseSshPort
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.TerminalDimensions
 import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
 import org.connectbot.terminal.VTermKey
+import java.util.UUID
 
 private const val VTERM_MOD_CTRL = 4
 
@@ -91,12 +97,21 @@ private val TerminalAnsiPalette = intArrayOf(
 fun TerminalSpikeScreen() {
   val inputBuffer = remember { TerminalInputBuffer() }
   val coroutineScope = rememberCoroutineScope()
-  val sshSession = remember(coroutineScope) { SshTerminalSession(coroutineScope) }
+  val appContext = LocalContext.current.applicationContext
+  val hostStore = remember(appContext) { SharedPreferencesSshHostStore(appContext) }
+  val sshSession = remember(coroutineScope, hostStore) {
+    SshTerminalSession(
+      scope = coroutineScope,
+      hostStore = hostStore,
+    )
+  }
   val connectionState by sshSession.state.collectAsState()
 
   var terminalSize by remember { mutableStateOf(TerminalDimensions(rows = 32, columns = 96)) }
   var showIme by remember { mutableStateOf(false) }
   var forcedSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+  var savedHosts by remember(hostStore) { mutableStateOf(hostStore.loadHosts()) }
+  var selectedHostId by remember { mutableStateOf<String?>(null) }
   var host by remember { mutableStateOf("") }
   var port by remember { mutableStateOf("22") }
   var username by remember { mutableStateOf("") }
@@ -132,6 +147,31 @@ fun TerminalSpikeScreen() {
   }
 
   val inputSnapshot = inputBuffer.snapshot
+  val selectedHost = savedHosts.firstOrNull { it.id == selectedHostId }
+
+  fun persistCurrentHost(parsedPort: Int): SshHostRecord? {
+    val trimmedHost = host.trim()
+    val trimmedUsername = username.trim()
+    if (trimmedHost.isBlank() || trimmedUsername.isBlank()) return null
+
+    val now = System.currentTimeMillis()
+    val existingHost = selectedHost ?: savedHosts.firstOrNull {
+      it.host.equals(trimmedHost, ignoreCase = true) &&
+        it.port == parsedPort &&
+        it.username == trimmedUsername
+    }
+    val record = SshHostRecord(
+      id = existingHost?.id ?: UUID.randomUUID().toString(),
+      host = trimmedHost,
+      port = parsedPort,
+      username = trimmedUsername,
+      createdAtMillis = existingHost?.createdAtMillis ?: now,
+      updatedAtMillis = now,
+    )
+    savedHosts = hostStore.upsertHost(record)
+    selectedHostId = record.id
+    return record
+  }
 
   Column(
     modifier = Modifier
@@ -144,6 +184,8 @@ fun TerminalSpikeScreen() {
       port = port,
       username = username,
       password = password,
+      savedHosts = savedHosts,
+      selectedHostId = selectedHostId,
       terminalSize = terminalSize,
       inputSnapshot = inputSnapshot,
       connectionState = connectionState,
@@ -151,8 +193,24 @@ fun TerminalSpikeScreen() {
       onPortChange = { port = it },
       onUsernameChange = { username = it },
       onPasswordChange = { password = it },
+      onSaveHost = {
+        parseSshPort(port)?.let { persistCurrentHost(it) }
+      },
+      onSelectHost = { record ->
+        selectedHostId = record.id
+        host = record.host
+        port = record.port.toString()
+        username = record.username
+      },
+      onDeleteHost = {
+        selectedHostId?.let { hostId ->
+          savedHosts = hostStore.deleteHost(hostId)
+          selectedHostId = null
+        }
+      },
       onConnect = {
         val parsedPort = parseSshPort(port) ?: return@SshConnectionPanel
+        persistCurrentHost(parsedPort)
         sshSession.connect(
           request = SshConnectionRequest(
             target = SshConnectionTarget(
@@ -170,6 +228,14 @@ fun TerminalSpikeScreen() {
         sshSession.disconnect()
       },
     )
+
+    connectionState.hostKeyPrompt?.let { prompt ->
+      HostKeyPromptDialog(
+        prompt = prompt,
+        onAccept = { sshSession.respondToHostKeyPrompt(prompt.id, accepted = true) },
+        onReject = { sshSession.respondToHostKeyPrompt(prompt.id, accepted = false) },
+      )
+    }
 
     Box(
       modifier = Modifier
@@ -217,6 +283,8 @@ private fun SshConnectionPanel(
   port: String,
   username: String,
   password: String,
+  savedHosts: List<SshHostRecord>,
+  selectedHostId: String?,
   terminalSize: TerminalDimensions,
   inputSnapshot: TerminalInputSnapshot,
   connectionState: SshTerminalState,
@@ -224,6 +292,9 @@ private fun SshConnectionPanel(
   onPortChange: (String) -> Unit,
   onUsernameChange: (String) -> Unit,
   onPasswordChange: (String) -> Unit,
+  onSaveHost: () -> Unit,
+  onSelectHost: (SshHostRecord) -> Unit,
+  onDeleteHost: () -> Unit,
   onConnect: () -> Unit,
   onDisconnect: () -> Unit,
 ) {
@@ -235,6 +306,8 @@ private fun SshConnectionPanel(
     !connectionState.isConnected &&
     !connectionState.isBusy
   val fieldsEnabled = !connectionState.isBusy && !connectionState.isConnected
+  val canSaveHost = host.isNotBlank() && username.isNotBlank() && !portInvalid && fieldsEnabled
+  val canDeleteHost = selectedHostId != null && fieldsEnabled
 
   Column(
     modifier = Modifier
@@ -317,8 +390,126 @@ private fun SshConnectionPanel(
       )
     }
 
+    HostRecordControls(
+      savedHosts = savedHosts,
+      selectedHostId = selectedHostId,
+      canSaveHost = canSaveHost,
+      canDeleteHost = canDeleteHost,
+      onSaveHost = onSaveHost,
+      onSelectHost = onSelectHost,
+      onDeleteHost = onDeleteHost,
+    )
+
     TerminalStatusLine(connectionState = connectionState)
   }
+}
+
+@Composable
+private fun HostRecordControls(
+  savedHosts: List<SshHostRecord>,
+  selectedHostId: String?,
+  canSaveHost: Boolean,
+  canDeleteHost: Boolean,
+  onSaveHost: () -> Unit,
+  onSelectHost: (SshHostRecord) -> Unit,
+  onDeleteHost: () -> Unit,
+) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .horizontalScroll(rememberScrollState()),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    FilledTonalButton(
+      onClick = onSaveHost,
+      enabled = canSaveHost,
+      modifier = Modifier.height(34.dp),
+      shape = RoundedCornerShape(6.dp),
+      colors = ButtonDefaults.filledTonalButtonColors(
+        containerColor = Color(0xFF1D3A3F),
+        contentColor = AccentCyan,
+        disabledContainerColor = Color(0xFF20262C),
+        disabledContentColor = Color(0xFF64706C),
+      ),
+      contentPadding = ButtonDefaults.TextButtonContentPadding,
+    ) {
+      Text(
+        text = if (selectedHostId == null) "Save host" else "Update host",
+        fontSize = 12.sp,
+      )
+    }
+
+    FilledTonalButton(
+      onClick = onDeleteHost,
+      enabled = canDeleteHost,
+      modifier = Modifier.height(34.dp),
+      shape = RoundedCornerShape(6.dp),
+      colors = ButtonDefaults.filledTonalButtonColors(
+        containerColor = Color(0xFF33201F),
+        contentColor = AccentRed,
+        disabledContainerColor = Color(0xFF20262C),
+        disabledContentColor = Color(0xFF64706C),
+      ),
+      contentPadding = ButtonDefaults.TextButtonContentPadding,
+    ) {
+      Text(text = "Delete", fontSize = 12.sp)
+    }
+
+    savedHosts.forEach { record ->
+      val selected = record.id == selectedHostId
+      FilledTonalButton(
+        onClick = { onSelectHost(record) },
+        modifier = Modifier
+          .height(34.dp)
+          .sizeIn(minWidth = 112.dp),
+        shape = RoundedCornerShape(6.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+          containerColor = if (selected) Color(0xFF253B2A) else Color(0xFF20262C),
+          contentColor = if (selected) AccentGreen else TerminalForeground,
+        ),
+        contentPadding = ButtonDefaults.TextButtonContentPadding,
+      ) {
+        Text(
+          text = record.displayName,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          fontSize = 12.sp,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun HostKeyPromptDialog(
+  prompt: SshHostKeyPrompt,
+  onAccept: () -> Unit,
+  onReject: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = {},
+    title = {
+      Text(text = "Trust SSH Host Key")
+    },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(text = prompt.endpoint.displayName)
+        Text(text = "${prompt.type} ${prompt.sha256Fingerprint}")
+        Text(text = "Accept only if this fingerprint matches the server you intended to reach.")
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = onAccept) {
+        Text(text = "Accept")
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onReject) {
+        Text(text = "Reject")
+      }
+    },
+  )
 }
 
 @Composable

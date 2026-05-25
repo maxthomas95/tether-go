@@ -1,6 +1,7 @@
 package com.tether.go.ssh
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,13 +16,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.connectbot.sshlib.AuthResult
 import org.connectbot.sshlib.ConnectResult
-import org.connectbot.sshlib.HostKeyVerifier
-import org.connectbot.sshlib.PublicKey
 import org.connectbot.sshlib.SshClient
 import org.connectbot.sshlib.SshSession
 import org.connectbot.terminal.TerminalDimensions
-import java.security.MessageDigest
-import java.util.Base64
 
 private const val SSH_TERMINAL_TYPE = "xterm-256color"
 private const val DEFAULT_SSH_PORT = 22
@@ -56,16 +53,12 @@ enum class SshTerminalPhase {
   Connected,
 }
 
-data class SshHostKeySummary(
-  val type: String,
-  val sha256Fingerprint: String,
-)
-
 data class SshTerminalState(
   val phase: SshTerminalPhase = SshTerminalPhase.Disconnected,
   val targetLabel: String = "",
   val message: String = "Disconnected",
   val hostKey: SshHostKeySummary? = null,
+  val hostKeyPrompt: SshHostKeyPrompt? = null,
   val error: String? = null,
 ) {
   val isBusy: Boolean
@@ -79,6 +72,7 @@ data class SshTerminalState(
 
 class SshTerminalSession(
   private val scope: CoroutineScope,
+  private val hostStore: SshHostStore,
 ) {
   private val _state = MutableStateFlow(SshTerminalState())
   val state: StateFlow<SshTerminalState> = _state.asStateFlow()
@@ -91,6 +85,9 @@ class SshTerminalSession(
 
   @Volatile
   private var attemptCounter = 0
+
+  @Volatile
+  private var pendingHostKeyPrompt: PendingHostKeyPrompt? = null
 
   private var connectJob: Job? = null
   private var lastRemoteSize: Pair<Int, Int>? = null
@@ -116,13 +113,72 @@ class SshTerminalSession(
     connectJob = scope.launch(Dispatchers.IO) {
       var client: SshClient? = null
       var session: SshSession? = null
+      var hostKeyFailureMessage: String? = null
 
       try {
-        val hostKeyVerifier = SpikeHostKeyVerifier { hostKey ->
-          updateState(attemptId) { current ->
-            current.copy(hostKey = hostKey)
-          }
-        }
+        val endpoint = SshHostEndpoint(
+          host = request.target.host,
+          port = request.target.port,
+        )
+        val hostKeyVerifier = KnownHostsVerifier(
+          endpoint = endpoint,
+          hostStore = hostStore,
+          onHostKeyAccepted = { hostKey ->
+            updateState(attemptId) { current ->
+              current.copy(
+                hostKey = hostKey,
+                hostKeyPrompt = null,
+                error = null,
+              )
+            }
+          },
+          onHostKeyMismatch = { mismatch ->
+            hostKeyFailureMessage = mismatch.toUserMessage()
+            updateState(attemptId) { current ->
+              current.copy(
+                hostKey = mismatch.presented,
+                hostKeyPrompt = null,
+                message = "Host key mismatch",
+                error = hostKeyFailureMessage,
+              )
+            }
+          },
+          confirmUnknownHostKey = { prompt ->
+            val response = CompletableDeferred<Boolean>()
+            pendingHostKeyPrompt = PendingHostKeyPrompt(
+              id = prompt.id,
+              response = response,
+            )
+            updateState(attemptId) { current ->
+              current.copy(
+                hostKey = SshHostKeySummary(
+                  type = prompt.type,
+                  sha256Fingerprint = prompt.sha256Fingerprint,
+                ),
+                hostKeyPrompt = prompt,
+                message = "Confirm host key fingerprint",
+                error = null,
+              )
+            }
+
+            val accepted = response.await()
+            if (!accepted) {
+              hostKeyFailureMessage = "Host key was not accepted for ${prompt.endpoint.displayName}"
+            }
+            updateState(attemptId) { current ->
+              if (current.hostKeyPrompt?.id == prompt.id) {
+                current.copy(
+                  hostKeyPrompt = null,
+                  message = if (accepted) "Host key accepted" else "Host key rejected",
+                )
+              } else {
+                current
+              }
+            }
+            pendingHostKeyPrompt = null
+            accepted
+          },
+        )
 
         client = SshClient(
           host = request.target.host,
@@ -133,7 +189,7 @@ class SshTerminalSession(
 
         when (val result = client.connect()) {
           ConnectResult.Success -> Unit
-          else -> throw SshTerminalConnectException(result.toUserMessage())
+          else -> throw SshTerminalConnectException(hostKeyFailureMessage ?: result.toUserMessage())
         }
 
         updateState(attemptId) { current ->
@@ -274,6 +330,8 @@ class SshTerminalSession(
 
   fun disconnect(message: String = "Disconnected") {
     attemptCounter += 1
+    pendingHostKeyPrompt?.response?.complete(false)
+    pendingHostKeyPrompt = null
     connectJob?.cancel()
     connectJob = null
 
@@ -289,6 +347,14 @@ class SshTerminalSession(
     }
 
     _state.value = SshTerminalState(message = message)
+  }
+
+  fun respondToHostKeyPrompt(promptId: Long, accepted: Boolean) {
+    val pendingPrompt = pendingHostKeyPrompt ?: return
+    if (pendingPrompt.id != promptId) return
+
+    pendingHostKeyPrompt = null
+    pendingPrompt.response.complete(accepted)
   }
 
   private fun nextAttemptId(): Int {
@@ -334,33 +400,6 @@ class SshTerminalSession(
   }
 }
 
-class SpikeHostKeyVerifier(
-  private val onHostKeyAccepted: (SshHostKeySummary) -> Unit = {},
-) : HostKeyVerifier {
-  private var acceptedKey: PublicKey? = null
-
-  override suspend fun verify(key: PublicKey): Boolean {
-    val previousKey = acceptedKey
-    if (previousKey != null && previousKey != key) {
-      return false
-    }
-
-    acceptedKey = key
-    onHostKeyAccepted(
-      SshHostKeySummary(
-        type = key.type,
-        sha256Fingerprint = sshSha256Fingerprint(key.encoded),
-      ),
-    )
-    return true
-  }
-}
-
-internal fun sshSha256Fingerprint(publicKeyBlob: ByteArray): String {
-  val digest = MessageDigest.getInstance("SHA-256").digest(publicKeyBlob)
-  return "SHA256:${Base64.getEncoder().withoutPadding().encodeToString(digest)}"
-}
-
 fun parseSshPort(value: String): Int? =
   value.trim().toIntOrNull()?.takeIf { it in 1..65535 }
 
@@ -384,4 +423,13 @@ private fun AuthResult.toUserMessage(): String = when (this) {
   is AuthResult.Error -> cause?.message ?: message
 }
 
+private fun SshHostKeyMismatch.toUserMessage(): String =
+  "Host key mismatch for ${endpoint.displayName}. Expected ${expected.sha256Fingerprint}, " +
+    "got ${presented.sha256Fingerprint}. Delete the saved host before trusting a changed server key."
+
 private class SshTerminalConnectException(message: String) : Exception(message)
+
+private data class PendingHostKeyPrompt(
+  val id: Long,
+  val response: CompletableDeferred<Boolean>,
+)
