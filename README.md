@@ -10,9 +10,12 @@ Tether Go is the "on the go" surface in the Tether product family:
 
 ## Status
 
-Initial Android scaffold. The app currently builds a placeholder Android screen
-only; no SSH transport, terminal renderer, session management, storage, or
-product UI has landed yet.
+Initial Android scaffold with the first terminal-renderer spike. The app now
+renders a ConnectBot `termlib` terminal fed by a high-volume fake PTY byte stream,
+with keyboard and quick-bar input routed into a local stdin test buffer.
+
+No SSH transport, session management, storage, host-key handling, or product
+session UI has landed yet.
 
 The initial product direction is intentionally small:
 

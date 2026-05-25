@@ -6,11 +6,15 @@ Status legend: **[planned]** not started, **[in progress]** active, **[blocked]*
 
 ## v0.1
 
-- [planned] Android stack decision and technical spike.
+- [in progress] Android stack decision and technical spike: native ConnectBot
+  `termlib` renderer spike landed; direct SSH PTY validation remains.
 - [planned] Direct SSH connection to a reachable host.
 - [planned] Remote PTY allocation with `xterm-256color`.
-- [planned] Terminal renderer with real TUI clarity.
-- [planned] Keyboard and quick-bar input routed to PTY stdin unchanged.
+- [in progress] Terminal renderer with real TUI clarity: fake PTY renderer
+  pressure test landed; real TUI validation remains.
+- [in progress] Keyboard and quick-bar input routed to PTY stdin unchanged:
+  current spike records terminal input bytes in a local test buffer before SSH
+  exists.
 - [planned] Host key TOFU and pinned known-hosts store.
 - [planned] Private key import with encrypted local storage.
 - [planned] New session flow: host, working directory, CLI tool, launch flags, env vars.
