@@ -10,14 +10,16 @@ Tether Go is the "on the go" surface in the Tether product family:
 
 ## Status
 
-Initial Android scaffold with terminal-renderer and SSH PTY spikes. The app now
-renders a ConnectBot `termlib` terminal and can connect directly to a
-user-provided SSH host with password auth, request an `xterm-256color` PTY, open
-a shell, stream raw SSH channel bytes into the terminal, and route keyboard and
-quick-bar input back to the remote PTY unchanged.
+Initial Android scaffold with terminal-renderer, SSH PTY, and host-key TOFU
+spikes. The app now renders a ConnectBot `termlib` terminal, persists minimal
+host records, connects directly to a user-provided SSH host with password auth,
+confirms and pins the first presented host key, requests an `xterm-256color`
+PTY, opens a shell, streams raw SSH channel bytes into the terminal, and routes
+keyboard and quick-bar input back to the remote PTY unchanged.
 
-No polished host manager, persisted session management, secure key storage, or
-host-key TOFU UI has landed yet.
+No polished session manager, private-key import, encrypted key storage, or
+production product UI has landed yet. Passwords remain temporary in-memory
+connection input and are not persisted.
 
 The initial product direction is intentionally small:
 

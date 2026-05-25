@@ -13,7 +13,8 @@ Status legend: **[planned]** not started, **[in progress]** active, **[blocked]*
 - [in progress] Terminal renderer with real TUI clarity: fake PTY renderer
   pressure test landed; real TUI validation is documented for SSH.
 - [in progress] Keyboard and quick-bar input routed to PTY stdin unchanged.
-- [planned] Host key TOFU and pinned known-hosts store.
+- [done] Minimal persisted host records, host key TOFU, and pinned known-hosts
+  store.
 - [planned] Private key import with encrypted local storage.
 - [planned] New session flow: host, working directory, CLI tool, launch flags, env vars.
 - [planned] Phone-owned session list and full-screen terminal view.

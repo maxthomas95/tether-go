@@ -41,6 +41,6 @@ commands until the signing approach exists.
 ## Debug Smoke Test
 
 Build the debug APK with `./gradlew assembleDebug`, install it on an emulator or
-device, launch Tether Go, and confirm the placeholder screen renders. SSH,
-terminal rendering, host-key verification, and secure storage are not part of the
-current scaffold smoke test.
+device, launch Tether Go, and confirm the terminal screen renders. SSH terminal
+rendering and host-key verification have separate manual checks in
+`docs/SSH_PTY_SPIKE_TESTING.md`; private-key secure storage is still deferred.

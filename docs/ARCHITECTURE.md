@@ -9,8 +9,11 @@ connect directly to a user-provided SSH host with password auth, request an
 terminal, and route keyboard and quick-bar input back to the SSH channel
 unchanged.
 
-No polished host manager, persisted session management, secure key storage,
-host-key TOFU UI, or product session UI has landed yet.
+The current spike also persists minimal host records and pinned known-host keys.
+An unknown host key pauses first connection for explicit SHA-256 fingerprint
+confirmation, accepted keys are pinned per host/port, and changed keys fail
+closed before authentication. No polished session management, private-key
+import, secure key storage, or product session UI has landed yet.
 
 ## Scaffold Stack
 
@@ -101,13 +104,18 @@ Renderer validation from PR #4:
 
 Current SSH PTY validation path:
 
-- Direct SSH connection uses password auth and an in-memory host-key verifier.
+- Direct SSH connection uses password auth and persisted host-key TOFU.
+- Unknown host keys show a fingerprint confirmation prompt before
+  authentication.
+- Accepted host keys are pinned in local known-hosts storage keyed by host and
+  port.
+- Reconnecting to the same key continues without another prompt; a different key
+  for the same host and port is rejected before password authentication.
 - The app requests an `xterm-256color` PTY, opens a shell, and routes terminal
   input/output through the same native terminal path.
 - Run real TUIs such as `bash`, `vim`, `top`, Claude, Codex, and OpenCode.
 - Test Android lifecycle behavior with a live SSH channel.
-- Add persisted host-key TOFU and secure key storage before using production
-  credentials.
+- Add secure private-key storage before using production private keys.
 
 ## Leading SSH Spike
 
@@ -141,9 +149,13 @@ Durable shared sessions are a later backend/agent problem, not a v0.1 requiremen
 
 ## Security Baseline
 
-- SSH host key TOFU from the first production SSH implementation. The current
-  spike accepts the first presented key in memory and rejects a different key
-  during the same connection attempt, but it does not persist known hosts.
+- SSH host key TOFU is implemented for the current SSH spike.
+- First connection to an unknown host/port requires explicit fingerprint
+  confirmation.
+- Accepted host keys are stored as pinned known-host entries containing key type,
+  encoded public key, SHA-256 fingerprint, and acceptance time. Host records and
+  host keys are not secrets; passwords remain in transient UI state and are not
+  persisted.
 - Fail closed on host key changes.
 - Private key material encrypted at rest.
 - No plaintext tokens, passphrases, private keys, or Vault material in logs or config.
