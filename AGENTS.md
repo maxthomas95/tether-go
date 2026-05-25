@@ -8,7 +8,9 @@ Tether Go is an Android client for managing SSH-backed agent CLI sessions from a
 - **Tether Go** - mobile, remote-first session client.
 - **VoidCode VR** - spatial VR session manager.
 
-**Status:** Early repository setup. No app implementation has landed yet.
+**Status:** Initial Android scaffold. The app currently builds a placeholder
+Compose screen only; no SSH transport, terminal renderer, session management,
+storage, or product UI has landed yet.
 
 ## Core Principle
 
@@ -28,21 +30,27 @@ Tether Go is an Android client for managing SSH-backed agent CLI sessions from a
 
 The first technical spike should validate SSH PTY + terminal rendering before committing to full product UI.
 
-Current leading option:
+Current scaffold:
 - Kotlin + Jetpack Compose.
+- Android Gradle Plugin 9.2.0 with Gradle 9.4.1.
+- AGP 9 built-in Kotlin support plus the Compose compiler plugin.
+- Compose BOM 2026.05.00.
+- Compile/target SDK 36, min SDK 26.
+- Application ID and namespace `com.tether.go`.
+
+Remaining leading option for the terminal spike:
 - Native SSH library with PTY support.
 - Native terminal component if fidelity is good enough.
 
 Fallback:
 - Native SSH bridge plus xterm.js in Android WebView.
 
-Do not add an Android project until the first implementation PR is ready to own the build/test commands and stack choice.
+Do not add SSH, terminal, persistence, or session UI until a focused
+implementation PR is ready to validate and own that behavior.
 
 ## Project Structure
 
-This repository is intentionally documentation-only at setup time.
-
-Planned structure once implementation starts:
+Current structure:
 
 - `app/`: Android application module.
 - `docs/`: architecture, release, and product notes.
@@ -50,14 +58,14 @@ Planned structure once implementation starts:
 
 ## Build, Test, and Development Commands
 
-No build system exists yet. Do not invent commands in PR descriptions until they exist.
-
-Expected future commands:
+Use the Gradle wrapper. These commands exist now:
 
 - `./gradlew test`: run unit tests.
 - `./gradlew lint`: run Android lint.
 - `./gradlew assembleDebug`: build a debug APK.
-- `./gradlew assembleRelease`: build a release APK once signing is configured.
+
+Do not document `./gradlew assembleRelease` as a release command until signing is
+configured.
 
 ## Coding Style and Naming Conventions
 

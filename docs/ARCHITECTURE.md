@@ -2,9 +2,23 @@
 
 ## Current Status
 
-This repository is in setup phase. No Android implementation has landed yet.
+This repository now contains the initial Android scaffold. The app module builds
+a placeholder Jetpack Compose screen only. No SSH transport, terminal renderer,
+session management, persistence, or product UI has landed yet.
 
-The first implementation goal is a technical spike that proves direct SSH PTY streaming into a mobile terminal while preserving Tether's dumb-pipe invariant.
+The next implementation goal remains a technical spike that proves direct SSH PTY
+streaming into a mobile terminal while preserving Tether's dumb-pipe invariant.
+
+## Scaffold Stack
+
+- Kotlin + Jetpack Compose.
+- Android Gradle Plugin 9.2.0 with Gradle 9.4.1.
+- AGP 9 built-in Kotlin support plus the Compose compiler plugin.
+- Compose BOM 2026.05.00.
+- Compile/target SDK 36, min SDK 26.
+- Application ID and namespace `com.tether.go`.
+- GitHub Actions runs `./gradlew test`, `./gradlew lint`, and
+  `./gradlew assembleDebug` on pull requests and pushes to `main`.
 
 ## Core Invariant
 
