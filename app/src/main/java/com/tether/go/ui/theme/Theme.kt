@@ -1,39 +1,65 @@
 package com.tether.go.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
 
-private val LightColorScheme = lightColorScheme(
-  primary = Color(0xFF1769AA),
-  onPrimary = Color(0xFFFFFFFF),
-  background = Color(0xFFF8FAFC),
-  onBackground = Color(0xFF17212B),
-  surface = Color(0xFFFFFFFF),
-  onSurface = Color(0xFF17212B),
-)
-
-private val DarkColorScheme = darkColorScheme(
-  primary = Color(0xFF7DD3FC),
-  onPrimary = Color(0xFF06202F),
-  background = Color(0xFF101820),
-  onBackground = Color(0xFFE6EDF3),
-  surface = Color(0xFF16222C),
-  onSurface = Color(0xFFE6EDF3),
-)
-
+/**
+ * Root Tether Go theme. Derives a Material3 [androidx.compose.material3.ColorScheme]
+ * from the selected [TetherTheme] tokens and also publishes the full token set
+ * through [LocalTetherTheme] so custom components (status dots, CLI chips,
+ * terminal palette) can read Tether-specific colors that Material3 does not model.
+ */
 @Composable
 fun TetherGoTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
+  theme: TetherTheme = TetherThemes.default,
   content: @Composable () -> Unit,
 ) {
-  MaterialTheme(
-    colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
-    typography = Typography(),
-    content = content,
-  )
+  val colorScheme = if (theme.isDark) {
+    darkColorScheme(
+      primary = theme.accent,
+      onPrimary = theme.btnPrimaryText,
+      secondary = theme.accent,
+      onSecondary = theme.btnPrimaryText,
+      background = theme.bgPrimary,
+      onBackground = theme.textPrimary,
+      surface = theme.bgSidebar,
+      onSurface = theme.textPrimary,
+      surfaceVariant = theme.bgHeader,
+      onSurfaceVariant = theme.textSecondary,
+      surfaceContainer = theme.bgHeader,
+      surfaceContainerHigh = theme.bgHover,
+      outline = theme.border,
+      outlineVariant = theme.border,
+      error = theme.statusDead,
+    )
+  } else {
+    lightColorScheme(
+      primary = theme.accent,
+      onPrimary = theme.btnPrimaryText,
+      secondary = theme.accent,
+      onSecondary = theme.btnPrimaryText,
+      background = theme.bgPrimary,
+      onBackground = theme.textPrimary,
+      surface = theme.bgSidebar,
+      onSurface = theme.textPrimary,
+      surfaceVariant = theme.bgHeader,
+      onSurfaceVariant = theme.textSecondary,
+      surfaceContainer = theme.bgHeader,
+      surfaceContainerHigh = theme.bgHover,
+      outline = theme.border,
+      outlineVariant = theme.border,
+      error = theme.statusDead,
+    )
+  }
+
+  CompositionLocalProvider(LocalTetherTheme provides theme) {
+    MaterialTheme(
+      colorScheme = colorScheme,
+      typography = TetherTypography,
+      content = content,
+    )
+  }
 }

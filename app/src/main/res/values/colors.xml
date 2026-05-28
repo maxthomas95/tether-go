@@ -1,4 +1,7 @@
 <resources>
-  <color name="tether_go_primary">#1769AA</color>
-  <color name="tether_go_background">#F8FAFC</color>
+  <!-- Aligned to the Catppuccin Mocha default theme so the launch window and
+       adaptive icon match the in-app Tether identity (no white launch flash). -->
+  <color name="tether_go_primary">#B4BEFE</color>
+  <color name="tether_go_background">#1E1E2E</color>
+  <color name="ic_launcher_background">#181825</color>
 </resources>

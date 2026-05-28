@@ -2,12 +2,16 @@
 
 ## Current Status
 
-This repository contains the initial Android scaffold plus focused terminal and
-SSH PTY spikes. The app module renders a ConnectBot `termlib` terminal and can
-connect directly to a user-provided SSH host with password or private-key auth,
-request an `xterm-256color` PTY, open a shell, stream raw SSH channel bytes
-into the terminal, and route keyboard and quick-bar input back to the SSH
-channel unchanged.
+The app now has the Tether product UI shell on top of the SSH transport. A
+session-list home screen, a New Session flow, a full-screen terminal view, host
+& key management, and settings (theme + font) are wired through a small
+in-memory navigation back stack. A `SessionManager` owns multiple phone-owned
+SSH session runtimes, each backed by an `SshTerminalSession` transport and a
+persistent ConnectBot `termlib` emulator. The app connects directly to a
+user-provided SSH host with password or private-key auth, requests an
+`xterm-256color` PTY, opens a shell, types the constructed launch command into
+the PTY, streams raw SSH channel bytes into the terminal, and routes keyboard
+and quick-bar input back to the SSH channel unchanged.
 
 The current spike also persists minimal host records, pinned known-host keys,
 and imported SSH private keys. An unknown host key pauses first connection for
@@ -73,6 +77,39 @@ Remote host / VM
     - Claude / Codex / OpenCode / custom CLI
     - CLI-native transcript and resume metadata
 ```
+
+## Product UI Architecture
+
+```
+TetherGoApp (root)
+    - stores: SshHostStore, SshPrivateKeyStore, SessionStore, SettingsStore
+    - SessionManager (alive for the app process)
+    - theme + font state, in-memory navigation back stack
+        |
+        +-- SessionListScreen   (home: sessions grouped by host, status, CLI chips)
+        +-- NewSessionScreen    (host/auth/CLI/dir/flags/env/label -> SessionDraft)
+        +-- TerminalScreen      (termlib terminal + mobile quick bar)
+        +-- HostsScreen         (manage hosts + imported keys)
+        +-- SettingsScreen      (theme picker, terminal font, about)
+```
+
+- **SessionManager** holds one runtime per session: an `SshTerminalSession`
+  transport plus a persistent `termlib` `TerminalEmulator`. It exposes an
+  observable `StateFlow<List<SessionUiModel>>` (metadata + derived status) for
+  the list, creates/persists sessions, reconnects using stored private-key auth
+  when available, and types the launch command into the PTY once on connect.
+- **Launch command** is assembled by `LaunchCommandBuilder` from the
+  `cli` package (CLI registry + POSIX `ShellQuote`), ported from desktop Tether
+  shared code. It is only string assembly — the same command a user would type
+  — and is written to stdin, never wrapped or parsed, preserving the dumb pipe.
+- **Theme** tokens (`TetherTheme`) are ported 1:1 from the desktop renderer
+  theme registry and provided via `LocalTetherTheme`; the same tokens drive the
+  Material3 color scheme and the terminal ANSI palette.
+- **Lifecycle**: the activity sets `configChanges` so rotation does not recreate
+  it (sessions stay alive); the `SessionManager` scope is tied to the root
+  composition, so intentionally closing the app tears sessions down.
+- **Persistence**: session metadata is stored with the same tab/base64 encoding
+  as the host store, and contains no secrets (only a `privateKeyId` reference).
 
 ## Terminal Renderer Decision
 

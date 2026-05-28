@@ -20,6 +20,8 @@ Thumbs.db
 logs/
 tmp/
 *.log
+.screenshots/
+/tether-go-visible-now.png
 
 # Secrets / signing
 *.jks
