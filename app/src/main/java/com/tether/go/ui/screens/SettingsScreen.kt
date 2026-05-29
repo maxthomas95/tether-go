@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -44,6 +46,8 @@ fun SettingsScreen(
   onThemeChange: (String) -> Unit,
   fontSize: Int,
   onFontSizeChange: (Int) -> Unit,
+  notificationsEnabled: Boolean,
+  onNotificationsChange: (Boolean) -> Unit,
   appVersion: String,
   onBack: () -> Unit,
 ) {
@@ -115,6 +119,34 @@ fun SettingsScreen(
           onClick = { onFontSizeChange((fontSize + 1).coerceAtMost(SettingsStore.MAX_FONT_SIZE)) },
           shape = RoundedCornerShape(8.dp),
         ) { Text("+") }
+      }
+
+      SectionHeader("Notifications")
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(theme.bgSidebar, RoundedCornerShape(10.dp))
+          .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text("Session notifications", color = theme.textPrimary, style = MaterialTheme.typography.bodyMedium)
+          Text(
+            "Ping when a phone-owned session is waiting for input",
+            color = theme.textMuted,
+            style = MaterialTheme.typography.labelSmall,
+          )
+        }
+        Switch(
+          checked = notificationsEnabled,
+          onCheckedChange = onNotificationsChange,
+          colors = SwitchDefaults.colors(
+            checkedThumbColor = theme.btnPrimaryText,
+            checkedTrackColor = theme.accent,
+            uncheckedTrackColor = theme.bgActive,
+            uncheckedBorderColor = theme.border,
+          ),
+        )
       }
 
       SectionHeader("About")

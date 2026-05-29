@@ -21,6 +21,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +44,7 @@ import com.tether.go.ssh.SshTerminalState
 import com.tether.go.ui.components.HostKeyPromptDialog
 import com.tether.go.ui.components.StatusDot
 import com.tether.go.ui.components.TetherTextField
+import com.tether.go.ui.components.VoiceInputButton
 import com.tether.go.ui.components.TetherTopBar
 import com.tether.go.ui.components.TopBarTextAction
 import com.tether.go.ui.theme.LocalTetherTheme
@@ -66,12 +68,19 @@ fun TerminalScreen(
   manager: SessionManager,
   fontSize: Int,
   onBack: () -> Unit,
+  onEnsureForeground: () -> Unit = {},
 ) {
   val theme = LocalTetherTheme.current
   val session = manager.sessionMetadata(sessionId)
   val sshState by manager.sshStateFor(sessionId).collectAsState()
   val terminal = manager.terminalFor(sessionId)
   var showIme by remember { mutableStateOf(false) }
+
+  // This is the session the user is viewing → suppress its own pings while open.
+  DisposableEffect(sessionId) {
+    manager.setActiveSession(sessionId)
+    onDispose { manager.setActiveSession(null) }
+  }
 
   val appearance = TerminalAppearance(
     foreground = theme.terminalFg,
@@ -137,9 +146,9 @@ fun TerminalScreen(
         DisconnectedPanel(
           message = sshState.error ?: "Not connected",
           canReconnect = manager.canReconnectSilently(sessionId),
-          onReconnect = { manager.reconnect(sessionId, appearance, DEFAULT_SIZE) },
+          onReconnect = { onEnsureForeground(); manager.reconnect(sessionId, appearance, DEFAULT_SIZE) },
           onConnectWithPassword = { password ->
-            manager.connectWithPassword(sessionId, password, appearance, DEFAULT_SIZE)
+            onEnsureForeground(); manager.connectWithPassword(sessionId, password, appearance, DEFAULT_SIZE)
           },
         )
       }
@@ -149,9 +158,9 @@ fun TerminalScreen(
       if (!connected) {
         ReconnectBar(
           canReconnect = manager.canReconnectSilently(sessionId),
-          onReconnect = { manager.reconnect(sessionId, appearance, DEFAULT_SIZE) },
+          onReconnect = { onEnsureForeground(); manager.reconnect(sessionId, appearance, DEFAULT_SIZE) },
           onConnectWithPassword = { password ->
-            manager.connectWithPassword(sessionId, password, appearance, DEFAULT_SIZE)
+            onEnsureForeground(); manager.connectWithPassword(sessionId, password, appearance, DEFAULT_SIZE)
           },
         )
       }
@@ -261,6 +270,7 @@ private fun TerminalQuickBar(
     verticalAlignment = Alignment.CenterVertically,
   ) {
     QuickKey("⌨", selected = showIme, onClick = onToggleIme)
+    VoiceInputButton(onTranscript = { text -> terminal.typeText(text) })
     QuickKey("Esc") { terminal.dispatchKey(0, VTermKey.ESCAPE) }
     QuickKey("Tab") { terminal.dispatchKey(0, VTermKey.TAB) }
     QuickKey("Enter") { terminal.dispatchKey(0, VTermKey.ENTER) }
@@ -296,6 +306,16 @@ private fun QuickKey(
     contentPadding = ButtonDefaults.TextButtonContentPadding,
   ) {
     Text(label, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Clip)
+  }
+}
+
+/** Type [text] into the PTY one code point at a time (routes to SSH stdin). */
+private fun TerminalEmulator.typeText(text: String) {
+  var index = 0
+  while (index < text.length) {
+    val codePoint = text.codePointAt(index)
+    dispatchCharacter(0, codePoint)
+    index += Character.charCount(codePoint)
   }
 }
 

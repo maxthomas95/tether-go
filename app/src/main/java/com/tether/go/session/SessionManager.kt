@@ -33,6 +33,15 @@ data class SessionUiModel(
 )
 
 /**
+ * Sink for phone-owned notifications. Implemented by the foreground service so
+ * the manager stays free of Android notification APIs (and unit-testable).
+ */
+interface SessionNotifier {
+  fun notifyWaiting(session: Session, isBell: Boolean)
+  fun cancel(sessionId: String)
+}
+
+/**
  * Terminal colors + initial geometry used to construct a session's emulator.
  * A plain class (not a data class): instances are always rebuilt from the
  * active theme and never compared, so value equality is neither needed nor
@@ -94,11 +103,59 @@ class SessionManager(
   private val emptySshState: StateFlow<SshTerminalState> =
     MutableStateFlow(SshTerminalState()).asStateFlow()
 
+  private val detector = StatusDetector(scope)
+  private val detectedStates = HashMap<String, DetectedState>()
+  private val mutedSessions = mutableSetOf<String>()
+
+  /** Wired by the foreground service; null in tests / before the service binds. */
+  var notifier: SessionNotifier? = null
+  var notificationsEnabled: Boolean = true
+
+  private var activeSessionId: String? = null
+  private var appForeground: Boolean = true
+
   init {
+    detector.setOnStateChange { sessionId, detected ->
+      detectedStates[sessionId] = detected
+      if (detected == DetectedState.Waiting) maybeNotify(sessionId, isBell = false)
+      recompute()
+    }
+    detector.setOnBell { sessionId -> maybeNotify(sessionId, isBell = true) }
     store.loadSessions().forEach { session ->
       addRuntime(session)
     }
     recompute()
+  }
+
+  /** The session whose terminal is currently open (suppresses its own pings). */
+  fun setActiveSession(sessionId: String?) {
+    activeSessionId = sessionId
+    if (sessionId != null) notifier?.cancel(sessionId)
+  }
+
+  fun setAppForeground(foreground: Boolean) {
+    appForeground = foreground
+  }
+
+  fun isMuted(sessionId: String): Boolean = mutedSessions.contains(sessionId)
+
+  fun setMuted(sessionId: String, muted: Boolean) {
+    if (muted) {
+      mutedSessions.add(sessionId)
+      notifier?.cancel(sessionId)
+    } else {
+      mutedSessions.remove(sessionId)
+    }
+  }
+
+  /** Number of sessions holding (or establishing) a live connection. */
+  fun connectedCount(): Int = _sessions.value.count {
+    it.status != SessionStatus.Disconnected && it.status != SessionStatus.Error
+  }
+
+  /** Drop all live connections (used when the app is intentionally closed). */
+  fun disconnectAll() {
+    runtimes.keys.toList().forEach { disconnect(it) }
   }
 
   fun sshStateFor(sessionId: String): StateFlow<SshTerminalState> =
@@ -173,7 +230,11 @@ class SessionManager(
     val runtime = runtimes.remove(sessionId) ?: return
     runtime.collectJob?.cancel()
     runtime.sshSession.disconnect(message = "Session removed")
+    detector.unregister(sessionId)
+    notifier?.cancel(sessionId)
     states.remove(sessionId)
+    detectedStates.remove(sessionId)
+    mutedSessions.remove(sessionId)
     store.deleteSession(sessionId)
     recompute()
   }
@@ -199,6 +260,7 @@ class SessionManager(
   private fun addRuntime(session: Session): Runtime {
     val runtime = Runtime(session, SshTerminalSession(scope, hostStore))
     runtimes[session.id] = runtime
+    detector.register(session.id)
     runtime.collectJob = scope.launch {
       runtime.sshSession.state.collect { state ->
         states[session.id] = state
@@ -211,6 +273,9 @@ class SessionManager(
         }
         if (state.phase == SshTerminalPhase.Disconnected) {
           runtime.launchSent = false
+          // Stop the passive detector so a stale silence timer can't fire a
+          // notification after the connection has dropped.
+          detector.reset(session.id)
         }
         recompute()
       }
@@ -226,6 +291,8 @@ class SessionManager(
   ) {
     val terminal = ensureTerminal(runtime, appearance)
     runtime.launchSent = false
+    detector.reset(runtime.session.id)
+    val sessionId = runtime.session.id
     runtime.sshSession.connect(
       request = SshConnectionRequest(
         target = SshConnectionTarget(
@@ -236,7 +303,12 @@ class SessionManager(
         auth = auth,
       ),
       terminalSize = terminalSize,
-      output = terminal::writeInput,
+      output = { bytes ->
+        terminal.writeInput(bytes)
+        // Passive side-channel: feed a byte-preserving copy to the detector.
+        // ISO-8859-1 maps each byte 1:1 so control bytes (ESC/BEL) stay intact.
+        detector.feedData(sessionId, String(bytes, Charsets.ISO_8859_1))
+      },
     )
   }
 
@@ -271,13 +343,33 @@ class SessionManager(
   private fun recompute() {
     _sessions.value = runtimes.values.map { runtime ->
       val state = states[runtime.session.id] ?: SshTerminalState()
+      // While connected, the passive detector drives running/waiting/idle;
+      // otherwise the SSH phase decides (connecting/disconnected/error).
+      val status = if (state.phase == SshTerminalPhase.Connected) {
+        when (detectedStates[runtime.session.id] ?: DetectedState.Starting) {
+          DetectedState.Starting, DetectedState.Running -> SessionStatus.Running
+          DetectedState.Waiting -> SessionStatus.Waiting
+          DetectedState.Idle -> SessionStatus.Idle
+        }
+      } else {
+        state.toSessionStatus()
+      }
       SessionUiModel(
         session = runtime.session,
-        status = state.toSessionStatus(),
+        status = status,
         statusMessage = state.message,
         hostKeyPrompt = state.hostKeyPrompt,
       )
     }
+  }
+
+  private fun maybeNotify(sessionId: String, isBell: Boolean) {
+    if (!notificationsEnabled || mutedSessions.contains(sessionId)) return
+    // Don't ping the session the user is actively looking at.
+    if (appForeground && activeSessionId == sessionId) return
+    if (states[sessionId]?.phase != SshTerminalPhase.Connected) return
+    val session = runtimes[sessionId]?.session ?: return
+    notifier?.notifyWaiting(session, isBell)
   }
 
   private fun defaultLabel(draft: SessionDraft): String {

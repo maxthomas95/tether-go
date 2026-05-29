@@ -19,6 +19,12 @@ class SettingsStore(context: Context) {
     prefs.edit().putInt(KEY_FONT_SIZE, size.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)).apply()
   }
 
+  fun notificationsEnabled(): Boolean = prefs.getBoolean(KEY_NOTIFICATIONS, true)
+
+  fun setNotificationsEnabled(enabled: Boolean) {
+    prefs.edit().putBoolean(KEY_NOTIFICATIONS, enabled).apply()
+  }
+
   companion object {
     const val DEFAULT_THEME = "mocha"
     const val DEFAULT_FONT_SIZE = 13
@@ -26,5 +32,6 @@ class SettingsStore(context: Context) {
     const val MAX_FONT_SIZE = 22
     private const val KEY_THEME = "theme"
     private const val KEY_FONT_SIZE = "font_size"
+    private const val KEY_NOTIFICATIONS = "notifications_enabled"
   }
 }
