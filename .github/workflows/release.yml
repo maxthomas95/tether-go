@@ -1,0 +1,49 @@
+name: Release
+
+# Pushing a version tag (e.g. v0.1.0-beta.2) builds the debug APK and publishes
+# it as a GitHub pre-release. Release signing is not configured yet, so every
+# tag produces a debug-signed pre-release intended for sideloading/testing.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Stage APK with version name
+        run: cp app/build/outputs/apk/debug/app-debug.apk "tether-go-${{ github.ref_name }}.apk"
+
+      - name: Publish pre-release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: tether-go-${{ github.ref_name }}.apk
