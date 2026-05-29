@@ -17,43 +17,26 @@ fun TetherGoTheme(
   theme: TetherTheme = TetherThemes.default,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme = if (theme.isDark) {
-    darkColorScheme(
-      primary = theme.accent,
-      onPrimary = theme.btnPrimaryText,
-      secondary = theme.accent,
-      onSecondary = theme.btnPrimaryText,
-      background = theme.bgPrimary,
-      onBackground = theme.textPrimary,
-      surface = theme.bgSidebar,
-      onSurface = theme.textPrimary,
-      surfaceVariant = theme.bgHeader,
-      onSurfaceVariant = theme.textSecondary,
-      surfaceContainer = theme.bgHeader,
-      surfaceContainerHigh = theme.bgHover,
-      outline = theme.border,
-      outlineVariant = theme.border,
-      error = theme.statusDead,
-    )
-  } else {
-    lightColorScheme(
-      primary = theme.accent,
-      onPrimary = theme.btnPrimaryText,
-      secondary = theme.accent,
-      onSecondary = theme.btnPrimaryText,
-      background = theme.bgPrimary,
-      onBackground = theme.textPrimary,
-      surface = theme.bgSidebar,
-      onSurface = theme.textPrimary,
-      surfaceVariant = theme.bgHeader,
-      onSurfaceVariant = theme.textSecondary,
-      surfaceContainer = theme.bgHeader,
-      surfaceContainerHigh = theme.bgHover,
-      outline = theme.border,
-      outlineVariant = theme.border,
-      error = theme.statusDead,
-    )
-  }
+  // Start from the Material baseline for light/dark, then map Tether tokens
+  // onto it in a single place (avoids duplicating the assignment block).
+  val base = if (theme.isDark) darkColorScheme() else lightColorScheme()
+  val colorScheme = base.copy(
+    primary = theme.accent,
+    onPrimary = theme.btnPrimaryText,
+    secondary = theme.accent,
+    onSecondary = theme.btnPrimaryText,
+    background = theme.bgPrimary,
+    onBackground = theme.textPrimary,
+    surface = theme.bgSidebar,
+    onSurface = theme.textPrimary,
+    surfaceVariant = theme.bgHeader,
+    onSurfaceVariant = theme.textSecondary,
+    surfaceContainer = theme.bgHeader,
+    surfaceContainerHigh = theme.bgHover,
+    outline = theme.border,
+    outlineVariant = theme.border,
+    error = theme.statusDead,
+  )
 
   CompositionLocalProvider(LocalTetherTheme provides theme) {
     MaterialTheme(

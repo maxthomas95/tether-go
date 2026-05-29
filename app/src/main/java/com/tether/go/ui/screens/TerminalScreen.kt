@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.tether.go.session.SessionManager
 import com.tether.go.session.SessionStatus
 import com.tether.go.session.TerminalAppearance
+import com.tether.go.session.toSessionStatus
 import com.tether.go.ssh.SshTerminalPhase
 import com.tether.go.ssh.SshTerminalState
 import com.tether.go.ui.components.HostKeyPromptDialog
@@ -87,7 +88,7 @@ fun TerminalScreen(
     )
   }
 
-  val status = sshState.toStatus()
+  val status = sshState.toSessionStatus()
   val connected = status == SessionStatus.Running || status == SessionStatus.Connecting
 
   Column(
@@ -172,15 +173,6 @@ fun TerminalScreen(
 }
 
 private val DEFAULT_SIZE = TerminalDimensions(rows = 32, columns = 96)
-
-private fun SshTerminalState.toStatus(): SessionStatus = when (phase) {
-  SshTerminalPhase.Disconnected -> if (error != null) SessionStatus.Error else SessionStatus.Disconnected
-  SshTerminalPhase.Connecting,
-  SshTerminalPhase.Authenticating,
-  SshTerminalPhase.OpeningPty,
-  -> SessionStatus.Connecting
-  SshTerminalPhase.Connected -> SessionStatus.Running
-}
 
 private fun subtitleFor(state: SshTerminalState, endpoint: String?): String {
   val hostKey = state.hostKey
@@ -268,7 +260,7 @@ private fun TerminalQuickBar(
     horizontalArrangement = Arrangement.spacedBy(8.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    QuickKey(if (showIme) "⌨" else "⌨", selected = showIme, onClick = onToggleIme)
+    QuickKey("⌨", selected = showIme, onClick = onToggleIme)
     QuickKey("Esc") { terminal.dispatchKey(0, VTermKey.ESCAPE) }
     QuickKey("Tab") { terminal.dispatchKey(0, VTermKey.TAB) }
     QuickKey("Enter") { terminal.dispatchKey(0, VTermKey.ENTER) }

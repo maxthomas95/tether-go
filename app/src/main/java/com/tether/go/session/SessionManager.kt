@@ -32,19 +32,19 @@ data class SessionUiModel(
   val hostKeyPrompt: SshHostKeyPrompt?,
 )
 
-/** Terminal colors + initial geometry used to construct a session's emulator. */
-data class TerminalAppearance(
+/**
+ * Terminal colors + initial geometry used to construct a session's emulator.
+ * A plain class (not a data class): instances are always rebuilt from the
+ * active theme and never compared, so value equality is neither needed nor
+ * meaningful for the [ansiPalette] array member.
+ */
+class TerminalAppearance(
   val foreground: Color,
   val background: Color,
   val ansiPalette: IntArray,
   val initialRows: Int = 32,
   val initialCols: Int = 96,
-) {
-  // Identity equals is fine here (always reconstructed from the theme); these
-  // overrides only exist to satisfy the IntArray member contract.
-  override fun equals(other: Any?): Boolean = this === other
-  override fun hashCode(): Int = System.identityHashCode(this)
-}
+)
 
 /** Everything the New Session flow gathers before a session exists. */
 data class SessionDraft(
@@ -286,7 +286,7 @@ class SessionManager(
   }
 }
 
-private fun SshTerminalState.toSessionStatus(): SessionStatus = when (phase) {
+internal fun SshTerminalState.toSessionStatus(): SessionStatus = when (phase) {
   SshTerminalPhase.Disconnected -> if (error != null) SessionStatus.Error else SessionStatus.Disconnected
   SshTerminalPhase.Connecting,
   SshTerminalPhase.Authenticating,
