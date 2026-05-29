@@ -16,5 +16,11 @@ sonar {
     // The theme palette is a 1:1 ported value table (repetitive data, not
     // copy-pasted logic); exclude it from copy/paste detection.
     property("sonar.cpd.exclusions", "**/ui/theme/TetherTheme.kt")
+    // RECORD_AUDIO is required for push-to-talk voice input. Treat that manifest
+    // permission hotspot (xml:S5604) as reviewed-safe in config rather than
+    // re-confirming it in the SonarCloud UI on every analysis.
+    property("sonar.issue.ignore.multicriteria", "e1")
+    property("sonar.issue.ignore.multicriteria.e1.ruleKey", "xml:S5604")
+    property("sonar.issue.ignore.multicriteria.e1.resourceKey", "**/AndroidManifest.xml")
   }
 }
