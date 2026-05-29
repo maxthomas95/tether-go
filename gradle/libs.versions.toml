@@ -23,6 +23,7 @@ connectbot-termlib = { module = "org.connectbot:termlib", version.ref = "connect
 connectbot-sshlib = { module = "org.connectbot.sshlib:sshlib", version.ref = "connectbotSshlib" }
 junit = { module = "junit:junit", version.ref = "junit" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

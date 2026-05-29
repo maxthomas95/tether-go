@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -12,7 +13,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.tether.go.session.TerminalAppearance
 import com.tether.go.ui.nav.Screen
 import com.tether.go.ui.screens.HostsScreen
@@ -35,23 +37,34 @@ private fun appearanceFor(theme: TetherTheme) = TerminalAppearance(
 )
 
 /**
- * Application root: owns the stores, the [SessionManager] (alive for the app's
- * lifetime), the selected theme/font, and a small in-memory navigation back
- * stack across the session list, terminal, new-session, hosts, and settings.
+ * Application root. Reads the stores and [com.tether.go.session.SessionManager]
+ * from the bound [SessionService] (the process-scoped owner), tracks the
+ * selected theme/font, and drives a small in-memory navigation back stack.
+ * Connect actions promote the service to the foreground so sessions survive
+ * backgrounding.
  */
 @Composable
-fun TetherGoApp() {
-  val viewModel: MainViewModel = viewModel()
-  val hostStore = viewModel.hostStore
-  val privateKeyStore = viewModel.privateKeyStore
-  val settings = viewModel.settings
-  val manager = viewModel.sessionManager
+fun TetherGoApp(
+  service: SessionService,
+  pendingSessionId: String?,
+  onPendingConsumed: () -> Unit,
+) {
+  val context = LocalContext.current
+  val hostStore = service.hostStore
+  val privateKeyStore = service.privateKeyStore
+  val settings = service.settings
+  val manager = service.sessionManager
 
   var themeName by remember { mutableStateOf(settings.themeName()) }
   var fontSize by remember { mutableIntStateOf(settings.fontSize()) }
+  var notificationsEnabled by remember { mutableStateOf(service.notificationsEnabled()) }
   val theme = TetherThemes.byName(themeName)
 
   val sessions by manager.sessions.collectAsState()
+
+  fun ensureForeground() {
+    ContextCompat.startForegroundService(context, SessionService.intent(context))
+  }
 
   TetherGoTheme(theme) {
     val backStack = remember { mutableStateListOf<Screen>(Screen.SessionList) }
@@ -63,6 +76,15 @@ fun TetherGoApp() {
     }
     BackHandler(enabled = backStack.size > 1) { pop() }
 
+    // A notification tap routes straight to that session's terminal.
+    LaunchedEffect(pendingSessionId) {
+      val target = pendingSessionId ?: return@LaunchedEffect
+      if (manager.sessionMetadata(target) != null) {
+        if (backStack.lastOrNull() != Screen.Terminal(target)) navigate(Screen.Terminal(target))
+      }
+      onPendingConsumed()
+    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = theme.bgPrimary) {
       when (val current = backStack.last()) {
         Screen.SessionList -> SessionListScreen(
@@ -73,7 +95,10 @@ fun TetherGoApp() {
           onOpenSettings = { navigate(Screen.Settings) },
           onRename = { id, label -> manager.rename(id, label) },
           onDisconnect = { manager.disconnect(it) },
-          onReconnect = { id -> manager.reconnect(id, appearanceFor(theme), DEFAULT_TERMINAL_SIZE) },
+          onReconnect = { id ->
+            ensureForeground()
+            manager.reconnect(id, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
+          },
           onRemove = { manager.removeSession(it) },
           canReconnect = { manager.canReconnectSilently(it) },
         )
@@ -83,6 +108,7 @@ fun TetherGoApp() {
           privateKeyStore = privateKeyStore,
           onCancel = { pop() },
           onStart = { draft, auth ->
+            ensureForeground()
             val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
             backStack.removeAt(backStack.lastIndex)
             navigate(Screen.Terminal(id))
@@ -94,6 +120,7 @@ fun TetherGoApp() {
           manager = manager,
           fontSize = fontSize,
           onBack = { pop() },
+          onEnsureForeground = { ensureForeground() },
         )
 
         Screen.Hosts -> HostsScreen(
@@ -112,6 +139,11 @@ fun TetherGoApp() {
           onFontSizeChange = { size ->
             fontSize = size
             settings.setFontSize(size)
+          },
+          notificationsEnabled = notificationsEnabled,
+          onNotificationsChange = { enabled ->
+            notificationsEnabled = enabled
+            service.setNotificationsEnabled(enabled)
           },
           appVersion = APP_VERSION,
           onBack = { pop() },
