@@ -10,16 +10,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import com.tether.go.session.SessionManager
-import com.tether.go.session.SharedPreferencesSessionStore
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tether.go.session.TerminalAppearance
-import com.tether.go.settings.SettingsStore
-import com.tether.go.ssh.AndroidSshPrivateKeyStore
-import com.tether.go.ssh.SharedPreferencesSshHostStore
 import com.tether.go.ui.nav.Screen
 import com.tether.go.ui.screens.HostsScreen
 import com.tether.go.ui.screens.NewSessionScreen
@@ -47,18 +41,16 @@ private fun appearanceFor(theme: TetherTheme) = TerminalAppearance(
  */
 @Composable
 fun TetherGoApp() {
-  val context = LocalContext.current.applicationContext
-  val scope = rememberCoroutineScope()
-  val hostStore = remember { SharedPreferencesSshHostStore(context) }
-  val privateKeyStore = remember { AndroidSshPrivateKeyStore(context) }
-  val sessionStore = remember { SharedPreferencesSessionStore(context) }
-  val settings = remember { SettingsStore(context) }
+  val viewModel: MainViewModel = viewModel()
+  val hostStore = viewModel.hostStore
+  val privateKeyStore = viewModel.privateKeyStore
+  val settings = viewModel.settings
+  val manager = viewModel.sessionManager
 
   var themeName by remember { mutableStateOf(settings.themeName()) }
   var fontSize by remember { mutableIntStateOf(settings.fontSize()) }
   val theme = TetherThemes.byName(themeName)
 
-  val manager = remember { SessionManager(scope, hostStore, privateKeyStore, sessionStore) }
   val sessions by manager.sessions.collectAsState()
 
   TetherGoTheme(theme) {
