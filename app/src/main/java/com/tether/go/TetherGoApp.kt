@@ -1,10 +1,16 @@
 package com.tether.go
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -14,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.tether.go.session.TerminalAppearance
 import com.tether.go.ui.nav.Screen
 import com.tether.go.ui.screens.HostsScreen
@@ -60,6 +68,20 @@ fun TetherGoApp(
   var notificationsEnabled by remember { mutableStateOf(service.notificationsEnabled()) }
   val theme = TetherThemes.byName(themeName)
 
+  // Under forced edge-to-edge (targetSdk 35+) the system bars are transparent and
+  // sit over the app background, so the battery/clock/nav icons must contrast the
+  // active theme: light icons on dark themes, dark icons on light ones. Re-runs
+  // when the theme changes in Settings.
+  val view = LocalView.current
+  SideEffect {
+    view.context.findActivity()?.window?.let { window ->
+      WindowCompat.getInsetsController(window, view).apply {
+        isAppearanceLightStatusBars = !theme.isDark
+        isAppearanceLightNavigationBars = !theme.isDark
+      }
+    }
+  }
+
   val sessions by manager.sessions.collectAsState()
 
   fun ensureForeground() {
@@ -86,69 +108,84 @@ fun TetherGoApp(
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = theme.bgPrimary) {
-      when (val current = backStack.last()) {
-        Screen.SessionList -> SessionListScreen(
-          sessions = sessions,
-          onOpenSession = { navigate(Screen.Terminal(it)) },
-          onNewSession = { navigate(Screen.NewSession) },
-          onOpenHosts = { navigate(Screen.Hosts) },
-          onOpenSettings = { navigate(Screen.Settings) },
-          onRename = { id, label -> manager.rename(id, label) },
-          onDisconnect = { manager.disconnect(it) },
-          onReconnect = { id ->
-            ensureForeground()
-            manager.reconnect(id, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
-          },
-          onRemove = { manager.removeSession(it) },
-          canReconnect = { manager.canReconnectSilently(it) },
-        )
+      // Keep the Surface full-bleed so the themed background paints behind the
+      // transparent system bars, but inset the actual screen content with
+      // safeDrawingPadding so nothing draws under the status bar or the gesture/
+      // nav bar — otherwise bottom buttons land in the nav-bar region and can't
+      // be tapped. (safeDrawing also consumes the IME inset; TerminalScreen's own
+      // imePadding becomes a no-op rather than double-padding.)
+      Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+        when (val current = backStack.last()) {
+          Screen.SessionList -> SessionListScreen(
+            sessions = sessions,
+            onOpenSession = { navigate(Screen.Terminal(it)) },
+            onNewSession = { navigate(Screen.NewSession) },
+            onOpenHosts = { navigate(Screen.Hosts) },
+            onOpenSettings = { navigate(Screen.Settings) },
+            onRename = { id, label -> manager.rename(id, label) },
+            onDisconnect = { manager.disconnect(it) },
+            onReconnect = { id ->
+              ensureForeground()
+              manager.reconnect(id, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
+            },
+            onRemove = { manager.removeSession(it) },
+            canReconnect = { manager.canReconnectSilently(it) },
+          )
 
-        Screen.NewSession -> NewSessionScreen(
-          hostStore = hostStore,
-          privateKeyStore = privateKeyStore,
-          onCancel = { pop() },
-          onStart = { draft, auth ->
-            ensureForeground()
-            val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
-            backStack.removeAt(backStack.lastIndex)
-            navigate(Screen.Terminal(id))
-          },
-        )
+          Screen.NewSession -> NewSessionScreen(
+            hostStore = hostStore,
+            privateKeyStore = privateKeyStore,
+            onCancel = { pop() },
+            onStart = { draft, auth ->
+              ensureForeground()
+              val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
+              backStack.removeAt(backStack.lastIndex)
+              navigate(Screen.Terminal(id))
+            },
+          )
 
-        is Screen.Terminal -> TerminalScreen(
-          sessionId = current.sessionId,
-          manager = manager,
-          fontSize = fontSize,
-          onBack = { pop() },
-          onEnsureForeground = { ensureForeground() },
-        )
+          is Screen.Terminal -> TerminalScreen(
+            sessionId = current.sessionId,
+            manager = manager,
+            fontSize = fontSize,
+            onBack = { pop() },
+            onEnsureForeground = { ensureForeground() },
+          )
 
-        Screen.Hosts -> HostsScreen(
-          hostStore = hostStore,
-          privateKeyStore = privateKeyStore,
-          onBack = { pop() },
-        )
+          Screen.Hosts -> HostsScreen(
+            hostStore = hostStore,
+            privateKeyStore = privateKeyStore,
+            onBack = { pop() },
+          )
 
-        Screen.Settings -> SettingsScreen(
-          currentThemeName = themeName,
-          onThemeChange = { name ->
-            themeName = name
-            settings.setThemeName(name)
-          },
-          fontSize = fontSize,
-          onFontSizeChange = { size ->
-            fontSize = size
-            settings.setFontSize(size)
-          },
-          notificationsEnabled = notificationsEnabled,
-          onNotificationsChange = { enabled ->
-            notificationsEnabled = enabled
-            service.setNotificationsEnabled(enabled)
-          },
-          appVersion = APP_VERSION,
-          onBack = { pop() },
-        )
+          Screen.Settings -> SettingsScreen(
+            currentThemeName = themeName,
+            onThemeChange = { name ->
+              themeName = name
+              settings.setThemeName(name)
+            },
+            fontSize = fontSize,
+            onFontSizeChange = { size ->
+              fontSize = size
+              settings.setFontSize(size)
+            },
+            notificationsEnabled = notificationsEnabled,
+            onNotificationsChange = { enabled ->
+              notificationsEnabled = enabled
+              service.setNotificationsEnabled(enabled)
+            },
+            appVersion = APP_VERSION,
+            onBack = { pop() },
+          )
+        }
       }
     }
   }
+}
+
+/** Unwrap the (possibly themed/wrapped) Compose context to its host [Activity]. */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+  is Activity -> this
+  is ContextWrapper -> baseContext.findActivity()
+  else -> null
 }
