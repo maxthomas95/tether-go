@@ -158,6 +158,7 @@ fun TerminalScreen(
       if (!connected) {
         ReconnectBar(
           canReconnect = manager.canReconnectSilently(sessionId),
+          detail = sshState.error,
           onReconnect = { onEnsureForeground(); manager.reconnect(sessionId, appearance, DEFAULT_SIZE) },
           onConnectWithPassword = { password ->
             onEnsureForeground(); manager.connectWithPassword(sessionId, password, appearance, DEFAULT_SIZE)
@@ -187,6 +188,9 @@ private fun subtitleFor(state: SshTerminalState, endpoint: String?): String {
   val hostKey = state.hostKey
   return when {
     state.phase == SshTerminalPhase.Connected && hostKey != null -> "${endpoint ?: ""} · ${hostKey.sha256Fingerprint}"
+    // Surface the concrete failure reason (e.g. "Connection refused",
+    // "Authentication failed…") rather than the generic status line.
+    state.phase != SshTerminalPhase.Connected && !state.error.isNullOrBlank() -> state.error
     state.message.isNotBlank() && state.phase != SshTerminalPhase.Connected -> state.message
     else -> endpoint ?: state.message
   }
@@ -225,6 +229,7 @@ private fun ReconnectBar(
   canReconnect: Boolean,
   onReconnect: () -> Unit,
   onConnectWithPassword: (String) -> Unit,
+  detail: String? = null,
 ) {
   val theme = LocalTetherTheme.current
   Row(
@@ -235,7 +240,14 @@ private fun ReconnectBar(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text("Disconnected", color = theme.textMuted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+    Text(
+      text = detail?.takeIf { it.isNotBlank() } ?: "Disconnected",
+      color = if (detail.isNullOrBlank()) theme.textMuted else theme.statusDead,
+      style = MaterialTheme.typography.labelMedium,
+      maxLines = 2,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f),
+    )
     if (canReconnect) {
       FilledTonalButton(onClick = onReconnect) { Text("Reconnect") }
     } else {
