@@ -1,6 +1,7 @@
 package com.tether.go.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,11 @@ import com.tether.go.ui.theme.MonoLabel
  * Home screen: the phone-owned session list. Mirrors the desktop sidebar as a
  * mobile-first list — sessions grouped by host, each with a status dot, label,
  * CLI-tool chip, working directory, and per-session actions.
+ *
+ * Doubles as the persistent sidebar in the expanded (two-pane) layout: pass
+ * [selectedSessionId] to highlight the row whose terminal is open in the detail
+ * pane. When `null` (the phone default) no row is highlighted, so the single-
+ * column look is unchanged.
  */
 @Composable
 fun SessionListScreen(
@@ -65,6 +71,7 @@ fun SessionListScreen(
   onReconnect: (String) -> Unit,
   onRemove: (String) -> Unit,
   canReconnect: (String) -> Boolean,
+  selectedSessionId: String? = null,
 ) {
   val theme = LocalTetherTheme.current
   var renameTarget by remember { mutableStateOf<SessionUiModel?>(null) }
@@ -120,6 +127,7 @@ fun SessionListScreen(
             SessionCard(
               model = model,
               canReconnect = canReconnect(model.session.id),
+              selected = model.session.id == selectedSessionId,
               onOpen = { onOpenSession(model.session.id) },
               onRename = { renameTarget = model },
               onDisconnect = { onDisconnect(model.session.id) },
@@ -179,15 +187,19 @@ private fun SessionCard(
   onDisconnect: () -> Unit,
   onReconnect: () -> Unit,
   onRemove: () -> Unit,
+  selected: Boolean = false,
 ) {
   val theme = LocalTetherTheme.current
   val session = model.session
+  val shape = RoundedCornerShape(12.dp)
 
   Row(
     modifier = Modifier
       .fillMaxWidth()
+      .clip(shape)
       .clickable(onClick = onOpen)
-      .background(theme.bgSidebar, RoundedCornerShape(12.dp))
+      .background(if (selected) theme.bgActive else theme.bgSidebar, shape)
+      .then(if (selected) Modifier.border(1.dp, theme.accent, shape) else Modifier)
       .padding(horizontal = 12.dp, vertical = 12.dp),
     verticalAlignment = Alignment.Top,
     horizontalArrangement = Arrangement.spacedBy(10.dp),
