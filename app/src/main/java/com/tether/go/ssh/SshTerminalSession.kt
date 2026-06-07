@@ -192,7 +192,15 @@ class SshTerminalSession(
 
         when (val result = client.connect()) {
           ConnectResult.Success -> Unit
-          else -> throw SshTerminalConnectException(hostKeyFailureMessage ?: result.toUserMessage())
+          else -> {
+            val cause = when (result) {
+              is ConnectResult.TransportError -> result.cause
+              is ConnectResult.ProtocolError -> result.cause
+              else -> null
+            }
+            Log.w(TAG, "client.connect() returned $result", cause)
+            throw SshTerminalConnectException(hostKeyFailureMessage ?: result.toUserMessage())
+          }
         }
 
         updateState(attemptId) { current ->
