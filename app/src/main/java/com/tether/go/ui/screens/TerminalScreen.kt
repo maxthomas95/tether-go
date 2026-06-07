@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.res.ResourcesCompat
+import com.tether.go.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,13 @@ fun TerminalScreen(
   onEnsureForeground: () -> Unit = {},
 ) {
   val theme = LocalTetherTheme.current
+  val context = LocalContext.current
+  // A bundled Latin monospace font. The platform Typeface.MONOSPACE renders with
+  // large inter-character gaps on some devices (e.g. the Razr Fold), where it maps
+  // to a full-width/CJK cell whose Latin glyph is half the measured advance.
+  val terminalTypeface = remember {
+    ResourcesCompat.getFont(context, R.font.jetbrains_mono) ?: Typeface.MONOSPACE
+  }
   val session = manager.sessionMetadata(sessionId)
   val sshState by manager.sshStateFor(sessionId).collectAsState()
   val terminal = manager.terminalFor(sessionId)
@@ -128,7 +138,7 @@ fun TerminalScreen(
         Terminal(
           terminalEmulator = terminal,
           modifier = Modifier.fillMaxSize(),
-          typeface = Typeface.MONOSPACE,
+          typeface = terminalTypeface,
           initialFontSize = fontSize.sp,
           minFontSize = 7.sp,
           maxFontSize = 24.sp,
