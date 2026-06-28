@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.res.ResourcesCompat
+import com.tether.go.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,13 @@ fun TerminalScreen(
   onEnsureForeground: () -> Unit = {},
 ) {
   val theme = LocalTetherTheme.current
+  val context = LocalContext.current
+  // A bundled Latin monospace font. The platform Typeface.MONOSPACE renders with
+  // large inter-character gaps on some devices (e.g. the Razr Fold), where it maps
+  // to a full-width/CJK cell whose Latin glyph is half the measured advance.
+  val terminalTypeface = remember {
+    ResourcesCompat.getFont(context, R.font.jetbrains_mono) ?: Typeface.MONOSPACE
+  }
   val session = manager.sessionMetadata(sessionId)
   val sshState by manager.sshStateFor(sessionId).collectAsState()
   val terminal = manager.terminalFor(sessionId)
@@ -128,7 +138,7 @@ fun TerminalScreen(
         Terminal(
           terminalEmulator = terminal,
           modifier = Modifier.fillMaxSize(),
-          typeface = Typeface.MONOSPACE,
+          typeface = terminalTypeface,
           initialFontSize = fontSize.sp,
           minFontSize = 7.sp,
           maxFontSize = 24.sp,
@@ -158,6 +168,7 @@ fun TerminalScreen(
       if (!connected) {
         ReconnectBar(
           canReconnect = manager.canReconnectSilently(sessionId),
+          detail = sshState.error,
           onReconnect = { onEnsureForeground(); manager.reconnect(sessionId, appearance, DEFAULT_SIZE) },
           onConnectWithPassword = { password ->
             onEnsureForeground(); manager.connectWithPassword(sessionId, password, appearance, DEFAULT_SIZE)
@@ -187,6 +198,9 @@ private fun subtitleFor(state: SshTerminalState, endpoint: String?): String {
   val hostKey = state.hostKey
   return when {
     state.phase == SshTerminalPhase.Connected && hostKey != null -> "${endpoint ?: ""} · ${hostKey.sha256Fingerprint}"
+    // Surface the concrete failure reason (e.g. "Connection refused",
+    // "Authentication failed…") rather than the generic status line.
+    state.phase != SshTerminalPhase.Connected && !state.error.isNullOrBlank() -> state.error
     state.message.isNotBlank() && state.phase != SshTerminalPhase.Connected -> state.message
     else -> endpoint ?: state.message
   }
@@ -225,6 +239,7 @@ private fun ReconnectBar(
   canReconnect: Boolean,
   onReconnect: () -> Unit,
   onConnectWithPassword: (String) -> Unit,
+  detail: String? = null,
 ) {
   val theme = LocalTetherTheme.current
   Row(
@@ -235,7 +250,14 @@ private fun ReconnectBar(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text("Disconnected", color = theme.textMuted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+    Text(
+      text = detail?.takeIf { it.isNotBlank() } ?: "Disconnected",
+      color = if (detail.isNullOrBlank()) theme.textMuted else theme.statusDead,
+      style = MaterialTheme.typography.labelMedium,
+      maxLines = 2,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f),
+    )
     if (canReconnect) {
       FilledTonalButton(onClick = onReconnect) { Text("Reconnect") }
     } else {

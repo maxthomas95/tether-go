@@ -43,6 +43,7 @@ dependencies {
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
+  implementation(libs.bouncycastle.bcprov)
   implementation(libs.connectbot.sshlib)
   implementation(libs.connectbot.termlib)
   implementation(libs.kotlinx.coroutines.android)

@@ -1,5 +1,6 @@
 package com.tether.go.ssh
 
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +23,7 @@ import org.connectbot.terminal.TerminalDimensions
 
 private const val SSH_TERMINAL_TYPE = "xterm-256color"
 private const val DEFAULT_SSH_PORT = 22
+private const val TAG = "TetherSsh"
 
 data class SshConnectionTarget(
   val host: String,
@@ -102,6 +104,7 @@ class SshTerminalSession(
     val normalizedSize = terminalSize.normalized()
     lastRemoteSize = normalizedSize.rows to normalizedSize.columns
 
+    Log.i(TAG, "Connecting to ${request.target.displayName}")
     updateState(attemptId) {
       SshTerminalState(
         phase = SshTerminalPhase.Connecting,
@@ -189,7 +192,15 @@ class SshTerminalSession(
 
         when (val result = client.connect()) {
           ConnectResult.Success -> Unit
-          else -> throw SshTerminalConnectException(hostKeyFailureMessage ?: result.toUserMessage())
+          else -> {
+            val cause = when (result) {
+              is ConnectResult.TransportError -> result.cause
+              is ConnectResult.ProtocolError -> result.cause
+              else -> null
+            }
+            Log.w(TAG, "client.connect() returned $result", cause)
+            throw SshTerminalConnectException(hostKeyFailureMessage ?: result.toUserMessage())
+          }
         }
 
         updateState(attemptId) { current ->
@@ -247,6 +258,7 @@ class SshTerminalSession(
           client.disconnectedFlow.collect { cause ->
             val message = cause?.message?.let { "SSH transport dropped: $it" }
               ?: "SSH transport closed"
+            Log.w(TAG, "$message (${request.target.displayName})", cause)
             updateState(attemptId) { current ->
               current.copy(
                 phase = SshTerminalPhase.Disconnected,
@@ -262,11 +274,13 @@ class SshTerminalSession(
       } catch (error: CancellationException) {
         throw error
       } catch (error: Throwable) {
+        val detail = error.message ?: error::class.java.simpleName
+        Log.w(TAG, "SSH connection to ${request.target.displayName} failed: $detail", error)
         updateState(attemptId) { current ->
           current.copy(
             phase = SshTerminalPhase.Disconnected,
             message = "SSH connection failed",
-            error = error.message ?: error::class.java.simpleName,
+            error = detail,
           )
         }
       } finally {
