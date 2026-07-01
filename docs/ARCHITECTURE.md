@@ -13,14 +13,16 @@ user-provided SSH host with password or private-key auth, requests an
 the PTY, streams raw SSH channel bytes into the terminal, and routes keyboard
 and quick-bar input back to the SSH channel unchanged.
 
-The current spike also persists minimal host records, pinned known-host keys,
-and imported SSH private keys. An unknown host key pauses first connection for
+The current app also persists minimal host records, pinned known-host keys, and
+imported SSH private keys. An unknown host key pauses first connection for
 explicit SHA-256 fingerprint confirmation, accepted keys are pinned per
 host/port, and changed keys fail closed before authentication. Private keys and
 optional passphrases are stored through an Android Keystore-backed AES-GCM
 wrapper around local preferences; host records store only a selected private-key
-id reference. No polished session management or product session UI has landed
-yet.
+id reference. A foreground `SessionService` owns sessions while the app process
+is alive, posts phone-owned notifications for observed waiting/bell events, and
+exposes a push-to-talk voice input path that types final transcripts into PTY
+stdin.
 
 ## Scaffold Stack
 
