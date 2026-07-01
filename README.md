@@ -26,7 +26,8 @@ Imported private keys and optional passphrases are stored separately from host
 records and are not written to plaintext preferences or logs. The Android
 Keystore key used for encrypted storage requires recent device credential or
 strong biometric authentication before use. Phone-owned notifications and
-voice-to-text input are not in this release.
+push-to-talk voice input are implemented and still need release-candidate device
+validation.
 
 The initial product direction is intentionally small:
 
@@ -41,7 +42,7 @@ The initial product direction is intentionally small:
 
 **Dumb pipe, smart shell.** Do not parse, intercept, filter, or re-render CLI output. The terminal stream should remain a real PTY stream. Status detection, notifications, and usage tracking must be passive side channels.
 
-## Planned v0.1 Scope
+## v0.1 Scope
 
 - SSH host management with host key verification.
 - Private-key import and Android secure storage.
@@ -49,6 +50,7 @@ The initial product direction is intentionally small:
 - CLI tool selection for Claude, Codex, OpenCode, and custom commands.
 - Working directory, env vars, launch flags, and session labels.
 - Phone-owned notifications for sessions currently observed by the app.
+- Push-to-talk voice input that types final transcripts into the PTY.
 - Tether visual identity and theme continuity where practical.
 
 ## Documentation

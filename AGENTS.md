@@ -12,9 +12,10 @@ Tether Go is an Android client for managing SSH-backed agent CLI sessions from a
 The app has a session-list home, a New Session flow, a full-screen terminal view
 with a mobile quick bar, host & key management, and settings (theme + font),
 backed by a `SessionManager` that owns multiple phone-owned SSH session runtimes
-with persistent `termlib` emulators. Direct SSH, host-key TOFU, and encrypted
-private-key storage are in place. Phone-owned notifications and voice input are
-not yet implemented.
+with persistent `termlib` emulators. Direct SSH, host-key TOFU, encrypted
+private-key storage, phone-owned notifications, and push-to-talk voice input are
+in place. The current roadmap focus is release-candidate validation and v0.1
+hardening.
 
 ## Core Principle
 
@@ -32,7 +33,9 @@ not yet implemented.
 
 ## Expected Tech Direction
 
-The first technical spike should validate SSH PTY + terminal rendering before committing to full product UI.
+The first terminal-renderer and SSH PTY spikes have landed. Future work should
+preserve the selected native stack unless a focused spike proves a replacement
+is needed.
 
 Current scaffold:
 - Kotlin + Jetpack Compose.
@@ -42,19 +45,14 @@ Current scaffold:
 - Compile/target SDK 36, min SDK 26.
 - Application ID and namespace `com.tether.go`.
 
-Selected path for the first terminal-renderer spike:
+Selected terminal renderer:
 - ConnectBot `termlib` native Compose terminal component backed by `libvterm`.
-- Fake PTY byte stream only; no SSH transport in this spike.
 
-Remaining leading option for the SSH PTY spike:
-- Native SSH library with PTY support.
-- ConnectBot `termlib` renderer unless real-TUI validation proves otherwise.
+Selected SSH transport:
+- ConnectBot `cbssh` (`org.connectbot.sshlib:sshlib`) with PTY support.
 
 Fallback:
 - Native SSH bridge plus xterm.js in Android WebView.
-
-Do not add SSH, persistence, or session UI until a focused implementation PR is
-ready to validate and own that behavior.
 
 ## Project Structure
 
