@@ -2,7 +2,7 @@ package com.tether.go.settings
 
 import android.content.Context
 
-/** Lightweight app preferences: selected theme and terminal font size. */
+/** Lightweight app preferences: theme, terminal font size, notifications, chat launch flags. */
 class SettingsStore(context: Context) {
   private val prefs = context.applicationContext
     .getSharedPreferences("tether_go_settings", Context.MODE_PRIVATE)
@@ -25,6 +25,14 @@ class SettingsStore(context: Context) {
     prefs.edit().putBoolean(KEY_NOTIFICATIONS, enabled).apply()
   }
 
+  /** Claude flags applied when resuming or starting chats from a host's chat list. */
+  fun chatLaunchFlags(): Set<String> =
+    prefs.getStringSet(KEY_CHAT_LAUNCH_FLAGS, null)?.toSet() ?: emptySet()
+
+  fun setChatLaunchFlags(flags: Set<String>) {
+    prefs.edit().putStringSet(KEY_CHAT_LAUNCH_FLAGS, flags).apply()
+  }
+
   companion object {
     const val DEFAULT_THEME = "mocha"
     const val DEFAULT_FONT_SIZE = 13
@@ -33,5 +41,6 @@ class SettingsStore(context: Context) {
     private const val KEY_THEME = "theme"
     private const val KEY_FONT_SIZE = "font_size"
     private const val KEY_NOTIFICATIONS = "notifications_enabled"
+    private const val KEY_CHAT_LAUNCH_FLAGS = "chat_launch_flags"
   }
 }

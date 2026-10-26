@@ -11,6 +11,17 @@ data class LaunchProfile(
   val workingDir: String? = null,
   val flags: List<String> = emptyList(),
   val env: Map<String, String> = emptyMap(),
+  val toolSession: ToolSessionLaunch? = null,
+)
+
+/**
+ * A tool-native conversation id to attach at launch. [resume] continues an
+ * existing transcript; otherwise the id is pinned for a fresh conversation
+ * (Claude only) so a later reconnect can resume it, matching desktop Tether.
+ */
+data class ToolSessionLaunch(
+  val id: String,
+  val resume: Boolean,
 )
 
 object LaunchCommandBuilder {
@@ -38,6 +49,7 @@ object LaunchCommandBuilder {
       }
 
     parts += CliToolRegistry.binaryFor(profile.cliTool, profile.customBinary)
+    parts += toolSessionArgs(profile.cliTool, profile.toolSession)
 
     // CLI flags are passed through verbatim (a flag may carry its own value,
     // e.g. "--permission-mode plan"), matching how desktop stores cliArgs.
@@ -47,5 +59,24 @@ object LaunchCommandBuilder {
       .forEach { parts += it }
 
     return parts.joinToString(" ")
+  }
+
+  /**
+   * CLI-native resume / pin arguments, ported from desktop Tether's
+   * `buildCliArgs` (`src/shared/cli-tools.ts`). They go before user flags, as
+   * Codex's `resume <id>` is a subcommand.
+   */
+  private fun toolSessionArgs(cliTool: CliToolId, toolSession: ToolSessionLaunch?): List<String> {
+    val session = toolSession ?: return emptyList()
+    val id = ShellQuote.quoteArgIfNeeded(session.id)
+    return when {
+      cliTool == CliToolId.CLAUDE && session.resume -> listOf("--resume", id)
+      cliTool == CliToolId.CLAUDE -> listOf("--session-id", id)
+      !session.resume -> emptyList()
+      cliTool == CliToolId.CODEX -> listOf("resume", id)
+      cliTool == CliToolId.COPILOT -> listOf("--resume", id)
+      cliTool == CliToolId.OPENCODE -> listOf("--session", id)
+      else -> emptyList()
+    }
   }
 }

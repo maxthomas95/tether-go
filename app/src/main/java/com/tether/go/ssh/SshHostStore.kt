@@ -17,9 +17,15 @@ data class SshHostRecord(
   val createdAtMillis: Long,
   val updatedAtMillis: Long,
   val privateKeyId: String? = null,
+  /** Optional nickname, e.g. "claude-vm". */
+  val label: String? = null,
 ) {
   val displayName: String
     get() = "$username@$host:$port"
+
+  /** Nickname when set, else the bare host. */
+  val title: String
+    get() = label?.takeIf { it.isNotBlank() } ?: host
 
   val endpoint: SshHostEndpoint
     get() = SshHostEndpoint(host, port)
@@ -167,11 +173,12 @@ private fun List<SshHostRecord>.encodeHostRecords(): String =
       record.createdAtMillis.toString(),
       record.updatedAtMillis.toString(),
       record.privateKeyId.orEmpty(),
+      record.label.orEmpty(),
     )
   }
 
 private fun String?.decodeHostRecords(): List<SshHostRecord> =
-  decodeLines(fieldCounts = intArrayOf(6, 7)).mapNotNull { fields ->
+  decodeLines(fieldCounts = intArrayOf(6, 7, 8)).mapNotNull { fields ->
     val port = fields[2].toIntOrNull() ?: return@mapNotNull null
     val createdAtMillis = fields[4].toLongOrNull() ?: return@mapNotNull null
     val updatedAtMillis = fields[5].toLongOrNull() ?: return@mapNotNull null
@@ -183,6 +190,7 @@ private fun String?.decodeHostRecords(): List<SshHostRecord> =
       createdAtMillis = createdAtMillis,
       updatedAtMillis = updatedAtMillis,
       privateKeyId = fields.getOrNull(6)?.takeIf { it.isNotBlank() },
+      label = fields.getOrNull(7)?.takeIf { it.isNotBlank() },
     )
   }
 

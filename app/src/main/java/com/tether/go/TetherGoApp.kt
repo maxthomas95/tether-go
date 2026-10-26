@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -29,6 +30,8 @@ import com.tether.go.session.TerminalAppearance
 import com.tether.go.ui.nav.Screen
 import com.tether.go.ui.screens.EmptyDetailPane
 import com.tether.go.ui.screens.ExpandedLayout
+import com.tether.go.ui.screens.HostChatsScreen
+import com.tether.go.ui.screens.HostEditorScreen
 import com.tether.go.ui.screens.HostsScreen
 import com.tether.go.ui.screens.NewSessionScreen
 import com.tether.go.ui.screens.SessionListScreen
@@ -56,15 +59,22 @@ private fun appearanceFor(theme: TetherTheme) = TerminalAppearance(
   ansiPalette = theme.ansiPalette(),
 )
 
-/** Navigation actions bound differently by each layout (back stack vs detail pane). */
+/**
+ * Navigation actions bound differently by each layout (back stack vs detail
+ * pane). [open] pushes a screen; [replace] swaps out the current one (e.g. New
+ * session → its terminal), so back skips the finished form.
+ */
 private class TetherNav(
-  val openSession: (String) -> Unit,
-  val newSession: () -> Unit,
-  val openHosts: () -> Unit,
-  val openSettings: () -> Unit,
+  val open: (Screen) -> Unit,
+  val replace: (Screen) -> Unit,
   val back: () -> Unit,
-  val onSessionCreated: (String) -> Unit,
-)
+) {
+  val openSession: (String) -> Unit = { open(Screen.Terminal(it)) }
+  val newSession: () -> Unit = { open(Screen.NewSession()) }
+  val openHosts: () -> Unit = { open(Screen.Hosts) }
+  val openSettings: () -> Unit = { open(Screen.Settings) }
+  val onSessionCreated: (String) -> Unit = { replace(Screen.Terminal(it)) }
+}
 
 /**
  * Application root. Reads the stores and [com.tether.go.session.SessionManager]
@@ -172,12 +182,9 @@ fun TetherGoApp(
           BackHandler(enabled = detail != null && detail !is Screen.Terminal) { detail = null }
 
           val sidebarNav = TetherNav(
-            openSession = { detail = Screen.Terminal(it) },
-            newSession = { detail = Screen.NewSession },
-            openHosts = { detail = Screen.Hosts },
-            openSettings = { detail = Screen.Settings },
+            open = { detail = it },
+            replace = { detail = it },
             back = { detail = null },
-            onSessionCreated = { detail = Screen.Terminal(it) },
           )
 
           ExpandedLayout(
@@ -225,15 +232,12 @@ fun TetherGoApp(
           BackHandler(enabled = backStack.size > 1) { pop() }
 
           val stackNav = TetherNav(
-            openSession = { backStack.add(Screen.Terminal(it)) },
-            newSession = { backStack.add(Screen.NewSession) },
-            openHosts = { backStack.add(Screen.Hosts) },
-            openSettings = { backStack.add(Screen.Settings) },
-            back = { pop() },
-            onSessionCreated = { id ->
+            open = { backStack.add(it) },
+            replace = { screen ->
               backStack.removeAt(backStack.lastIndex)
-              backStack.add(Screen.Terminal(id))
+              backStack.add(screen)
             },
+            back = { pop() },
           )
 
           ScreenContent(
@@ -296,18 +300,24 @@ private fun ScreenContent(
       },
       onRemove = { manager.removeSession(it) },
       canReconnect = { manager.canReconnectSilently(it) },
+      hosts = service.hostStore.loadHosts(),
+      onOpenHostChats = { nav.open(Screen.HostChats(it)) },
+      onAddHost = { nav.open(Screen.HostEditor(hostId = null)) },
       selectedSessionId = selectedSessionId,
     )
 
-    Screen.NewSession -> NewSessionScreen(
+    is Screen.NewSession -> NewSessionScreen(
       hostStore = service.hostStore,
       privateKeyStore = service.privateKeyStore,
+      passwordStore = service.passwordStore,
       onCancel = nav.back,
       onStart = { draft, auth ->
         ensureForeground()
         val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
         nav.onSessionCreated(id)
       },
+      initialHostId = screen.hostId,
+      initialWorkingDir = screen.workingDir,
     )
 
     is Screen.Terminal -> TerminalScreen(
@@ -321,8 +331,49 @@ private fun ScreenContent(
     Screen.Hosts -> HostsScreen(
       hostStore = service.hostStore,
       privateKeyStore = service.privateKeyStore,
+      passwordStore = service.passwordStore,
       onBack = nav.back,
+      onAddHost = { nav.open(Screen.HostEditor(hostId = null)) },
+      onEditHost = { nav.open(Screen.HostEditor(it)) },
+      onOpenHost = { nav.open(Screen.HostChats(it)) },
     )
+
+    is Screen.HostEditor -> HostEditorScreen(
+      hostId = screen.hostId,
+      hostStore = service.hostStore,
+      privateKeyStore = service.privateKeyStore,
+      passwordStore = service.passwordStore,
+      onCancel = nav.back,
+      // A new host goes straight to its chats; an edit returns where it came from.
+      onSaved = { id -> if (screen.hostId == null) nav.replace(Screen.HostChats(id)) else nav.back() },
+    )
+
+    is Screen.HostChats -> {
+      var launchFlags by remember { mutableStateOf(service.settings.chatLaunchFlags()) }
+      // Keyed by host so an edited host (new endpoint/credentials) reloads.
+      key(screen.hostId, service.hostStore.loadHosts().firstOrNull { it.id == screen.hostId }) {
+        HostChatsScreen(
+          hostId = screen.hostId,
+          hostStore = service.hostStore,
+          passwordStore = service.passwordStore,
+          authResolver = service.authResolver,
+          commandRunner = service.commandRunner,
+          sessions = sessions,
+          launchFlags = launchFlags,
+          onLaunchFlagsChange = { launchFlags = it; service.settings.setChatLaunchFlags(it) },
+          onBack = nav.back,
+          onEditHost = { nav.open(Screen.HostEditor(screen.hostId)) },
+          onNewSession = { nav.open(Screen.NewSession(hostId = screen.hostId)) },
+          onOpenSession = nav.openSession,
+          onStart = { draft, auth ->
+            ensureForeground()
+            val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
+            // Push (not replace) so back from the terminal returns to the chat list.
+            nav.openSession(id)
+          },
+        )
+      }
+    }
 
     Screen.Settings -> SettingsScreen(
       currentThemeName = themeName,

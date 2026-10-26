@@ -8,6 +8,16 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Added
 
+- Browse and resume Claude Code chats on a saved host. A host's chat list reads
+  the CLI's own transcripts (`~/.claude/projects`) over a separate SSH exec
+  channel, groups conversations by project with title, last prompt, and age,
+  and opens a terminal running `claude --resume <id>` in the right directory.
+  Each project also has "New chat", and Claude launch flags can be toggled.
+- Add / edit host screen with a nickname and optional saved password
+  (Android Keystore-encrypted). The home screen shows saved hosts as quick
+  entry points to their chats.
+- New Claude sessions are pinned with `--session-id`, so reconnecting after a
+  dropped connection resumes the same conversation when its transcript exists.
 - Tether product UI shell with the house visual identity. The session list is
   now the home screen, grouped by host, with CLI-tool chips, status dots, and
   per-session rename / disconnect / reconnect / remove actions.

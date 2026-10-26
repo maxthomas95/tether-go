@@ -56,7 +56,8 @@ class SharedPreferencesSessionStore(
 
 // ── Encoding ──────────────────────────────────────────────────────────────
 
-private const val FIELD_COUNT = 14
+private const val LEGACY_FIELD_COUNT = 14
+private const val FIELD_COUNT = 15
 private const val LIST_SEPARATOR = "\n"
 private const val KV_SEPARATOR = "="
 
@@ -77,6 +78,7 @@ private fun List<Session>.encodeSessions(): String =
       s.privateKeyId.orEmpty(),
       s.createdAtMillis.toString(),
       s.updatedAtMillis.toString(),
+      s.toolSessionId.orEmpty(),
     )
   }
 
@@ -84,7 +86,7 @@ private fun String?.decodeSessions(): List<Session> {
   if (isNullOrBlank()) return emptyList()
   return lineSequence().mapNotNull { line ->
     val fields = line.split('\t')
-    if (fields.size != FIELD_COUNT) return@mapNotNull null
+    if (fields.size != FIELD_COUNT && fields.size != LEGACY_FIELD_COUNT) return@mapNotNull null
     val decoded = fields.map { encoded ->
       runCatching {
         String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8)
@@ -108,6 +110,7 @@ private fun String?.decodeSessions(): List<Session> {
       privateKeyId = decoded[11].takeIf { it.isNotBlank() },
       createdAtMillis = createdAt,
       updatedAtMillis = updatedAt,
+      toolSessionId = decoded.getOrNull(14)?.takeIf { it.isNotBlank() },
     )
   }.toList()
 }

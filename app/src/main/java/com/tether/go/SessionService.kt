@@ -13,8 +13,11 @@ import com.tether.go.session.SessionManager
 import com.tether.go.session.SessionNotifier
 import com.tether.go.session.SharedPreferencesSessionStore
 import com.tether.go.settings.SettingsStore
+import com.tether.go.ssh.AndroidSshPasswordStore
 import com.tether.go.ssh.AndroidSshPrivateKeyStore
 import com.tether.go.ssh.SharedPreferencesSshHostStore
+import com.tether.go.ssh.SshCommandRunner
+import com.tether.go.ssh.SshStoredAuthResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +42,12 @@ class SessionService : Service() {
     private set
   lateinit var privateKeyStore: AndroidSshPrivateKeyStore
     private set
+  lateinit var passwordStore: AndroidSshPasswordStore
+    private set
+  lateinit var authResolver: SshStoredAuthResolver
+    private set
+  lateinit var commandRunner: SshCommandRunner
+    private set
   lateinit var settings: SettingsStore
     private set
   lateinit var sessionManager: SessionManager
@@ -58,9 +67,12 @@ class SessionService : Service() {
     super.onCreate()
     hostStore = SharedPreferencesSshHostStore(this)
     privateKeyStore = AndroidSshPrivateKeyStore(this)
+    passwordStore = AndroidSshPasswordStore(this)
+    authResolver = SshStoredAuthResolver(privateKeyStore, passwordStore)
+    commandRunner = SshCommandRunner(hostStore)
     settings = SettingsStore(this)
     notifications = NotificationService(this)
-    sessionManager = SessionManager(scope, hostStore, privateKeyStore, SharedPreferencesSessionStore(this))
+    sessionManager = SessionManager(scope, hostStore, authResolver, SharedPreferencesSessionStore(this))
     sessionManager.notificationsEnabled = settings.notificationsEnabled()
     sessionManager.notifier = object : SessionNotifier {
       override fun notifyWaiting(session: Session, isBell: Boolean) {

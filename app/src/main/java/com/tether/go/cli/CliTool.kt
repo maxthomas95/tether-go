@@ -18,7 +18,8 @@ enum class CliToolId(val id: String) {
   }
 }
 
-data class CliFlag(val flag: String, val label: String)
+/** A common CLI flag; [chipLabel] is the short form used on compact chips. */
+data class CliFlag(val flag: String, val label: String, val chipLabel: String = label)
 
 data class CliToolDef(
   val id: CliToolId,
@@ -35,10 +36,10 @@ object CliToolRegistry {
     binaryName = "claude",
     supportsSessionResume = true,
     commonFlags = listOf(
-      CliFlag("--dangerously-skip-permissions", "Skip permission prompts"),
-      CliFlag("--permission-mode plan", "Plan mode (no edits)"),
-      CliFlag("--bare", "Minimal mode (skip hooks/plugins)"),
-      CliFlag("--verbose", "Verbose output"),
+      CliFlag("--dangerously-skip-permissions", "Skip permission prompts", "Skip permissions"),
+      CliFlag("--permission-mode plan", "Plan mode (no edits)", "Plan mode"),
+      CliFlag("--bare", "Minimal mode (skip hooks/plugins)", "Minimal"),
+      CliFlag("--verbose", "Verbose output", "Verbose"),
     ),
   )
 

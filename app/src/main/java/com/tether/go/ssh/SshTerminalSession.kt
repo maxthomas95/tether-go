@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.connectbot.sshlib.AuthResult
 import org.connectbot.sshlib.ConnectResult
 import org.connectbot.sshlib.SshClient
@@ -24,6 +26,7 @@ import org.connectbot.terminal.TerminalDimensions
 private const val SSH_TERMINAL_TYPE = "xterm-256color"
 private const val DEFAULT_SSH_PORT = 22
 private const val TAG = "TetherSsh"
+private const val EXEC_TIMEOUT_MS = 10_000L
 
 data class SshConnectionTarget(
   val host: String,
@@ -211,7 +214,7 @@ class SshTerminalSession(
           )
         }
 
-        when (val result = authenticate(client, request)) {
+        when (val result = client.authenticate(request.target.username, request.auth)) {
           AuthResult.Success -> Unit
           else -> throw SshTerminalConnectException(result.toUserMessage())
         }
@@ -363,6 +366,20 @@ class SshTerminalSession(
     _state.value = SshTerminalState(message = message)
   }
 
+  /**
+   * Run a non-interactive command on a separate exec channel of the live
+   * connection. The PTY channel and its byte stream are untouched. Returns null
+   * when not connected or the channel could not be opened.
+   */
+  suspend fun exec(command: String, maxOutputBytes: Int = 64 * 1024): SshExecResult? {
+    val client = activeClient ?: return null
+    return withContext(Dispatchers.IO) {
+      runCatching { withTimeout(EXEC_TIMEOUT_MS) { client.exec(command, maxOutputBytes) } }
+        .onFailure { error -> if (error is CancellationException && error !is TimeoutCancellationException) throw error }
+        .getOrNull()
+    }
+  }
+
   fun respondToHostKeyPrompt(promptId: Long, accepted: Boolean) {
     val pendingPrompt = pendingHostKeyPrompt ?: return
     if (pendingPrompt.id != promptId) return
@@ -398,20 +415,22 @@ class SshTerminalSession(
     }
   }
 
-  private suspend fun authenticate(
-    client: SshClient,
-    request: SshConnectionRequest,
-  ): AuthResult = when (val auth = request.auth) {
-    is SshAuthMaterial.Password -> client.authenticatePassword(
-      username = request.target.username,
-      password = auth.password,
-    )
-    is SshAuthMaterial.PrivateKey -> client.authenticatePublicKey(
-      username = request.target.username,
-      privateKeyData = auth.privateKeyData,
-      passphrase = auth.passphrase,
-    )
-  }
+
+}
+
+internal suspend fun SshClient.authenticate(
+  username: String,
+  auth: SshAuthMaterial,
+): AuthResult = when (auth) {
+  is SshAuthMaterial.Password -> authenticatePassword(
+    username = username,
+    password = auth.password,
+  )
+  is SshAuthMaterial.PrivateKey -> authenticatePublicKey(
+    username = username,
+    privateKeyData = auth.privateKeyData,
+    passphrase = auth.passphrase,
+  )
 }
 
 fun parseSshPort(value: String): Int? =
@@ -423,7 +442,7 @@ private fun TerminalDimensions.normalized(): TerminalDimensions =
     columns = columns.coerceAtLeast(1),
   )
 
-private fun ConnectResult.toUserMessage(): String = when (this) {
+internal fun ConnectResult.toUserMessage(): String = when (this) {
   ConnectResult.Success -> "Connected"
   is ConnectResult.HostKeyRejected -> "Host key rejected: ${sshSha256Fingerprint(key.encoded)}"
   is ConnectResult.AlgorithmMismatch -> "SSH algorithm mismatch: $message"
@@ -431,13 +450,13 @@ private fun ConnectResult.toUserMessage(): String = when (this) {
   is ConnectResult.TransportError -> cause.message ?: cause::class.java.simpleName
 }
 
-private fun AuthResult.toUserMessage(): String = when (this) {
+internal fun AuthResult.toUserMessage(): String = when (this) {
   AuthResult.Success -> "Authenticated"
   is AuthResult.Failure -> "Authentication failed; server allows ${allowedMethods.sorted().joinToString()}"
   is AuthResult.Error -> cause?.message ?: message
 }
 
-private fun SshHostKeyMismatch.toUserMessage(): String =
+internal fun SshHostKeyMismatch.toUserMessage(): String =
   "Host key mismatch for ${endpoint.displayName}. Expected ${expected.sha256Fingerprint}, " +
     "got ${presented.sha256Fingerprint}. Delete the saved host before trusting a changed server key."
 

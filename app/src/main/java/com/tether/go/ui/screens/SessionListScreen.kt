@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.go.session.SessionStatus
 import com.tether.go.session.SessionUiModel
+import com.tether.go.ssh.SshHostRecord
 import com.tether.go.ui.branding.TetherLogo
 import com.tether.go.ui.components.CliToolChip
 import com.tether.go.ui.components.StatusDot
@@ -71,6 +73,9 @@ fun SessionListScreen(
   onReconnect: (String) -> Unit,
   onRemove: (String) -> Unit,
   canReconnect: (String) -> Boolean,
+  hosts: List<SshHostRecord> = emptyList(),
+  onOpenHostChats: (String) -> Unit = {},
+  onAddHost: () -> Unit = {},
   selectedSessionId: String? = null,
 ) {
   val theme = LocalTetherTheme.current
@@ -103,6 +108,8 @@ fun SessionListScreen(
     ) {
       Text(text = "+  New session", fontWeight = FontWeight.SemiBold)
     }
+
+    HostsStrip(hosts = hosts, onOpenHostChats = onOpenHostChats, onAddHost = onAddHost)
 
     if (sessions.isEmpty()) {
       EmptySessions(onNewSession = onNewSession)
@@ -148,6 +155,92 @@ fun SessionListScreen(
         onRename(target.session.id, newLabel)
         renameTarget = null
       },
+    )
+  }
+}
+
+/**
+ * Saved hosts as quick entry points to their Claude chats. With no hosts yet
+ * it shows a single "add the machine you run Claude on" card.
+ */
+@Composable
+private fun HostsStrip(
+  hosts: List<SshHostRecord>,
+  onOpenHostChats: (String) -> Unit,
+  onAddHost: () -> Unit,
+) {
+  val theme = LocalTetherTheme.current
+  Text(
+    text = "HOSTS · RESUME CLAUDE CHATS",
+    color = theme.textSecondary,
+    style = MaterialTheme.typography.labelMedium,
+    fontWeight = FontWeight.SemiBold,
+    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
+  )
+  LazyRow(
+    contentPadding = PaddingValues(horizontal = 12.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    modifier = Modifier.padding(bottom = 4.dp),
+  ) {
+    items(hosts, key = { it.id }) { host ->
+      HostTile(
+        title = host.title,
+        detail = host.displayName,
+        action = "Chats ›",
+        onClick = { onOpenHostChats(host.id) },
+      )
+    }
+    item(key = "add-host") {
+      HostTile(
+        title = if (hosts.isEmpty()) "Add your VM" else "Add host",
+        detail = if (hosts.isEmpty()) "Browse & resume its chats" else "SSH host",
+        action = "+ Add",
+        onClick = onAddHost,
+        dashed = true,
+      )
+    }
+  }
+}
+
+@Composable
+private fun HostTile(
+  title: String,
+  detail: String,
+  action: String,
+  onClick: () -> Unit,
+  dashed: Boolean = false,
+) {
+  val theme = LocalTetherTheme.current
+  val shape = RoundedCornerShape(12.dp)
+  Column(
+    modifier = Modifier
+      .width(176.dp)
+      .clip(shape)
+      .clickable(onClick = onClick)
+      .background(if (dashed) theme.bgPrimary else theme.bgSidebar, shape)
+      .border(1.dp, if (dashed) theme.border else theme.bgSidebar, shape)
+      .padding(horizontal = 12.dp, vertical = 10.dp),
+  ) {
+    Text(
+      title,
+      color = theme.textPrimary,
+      style = MaterialTheme.typography.titleSmall,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
+    Text(
+      detail,
+      color = theme.textMuted,
+      style = MonoLabel.copy(fontSize = 11.sp),
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
+    Text(
+      action,
+      color = theme.accent,
+      style = MaterialTheme.typography.labelMedium,
+      fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.padding(top = 6.dp),
     )
   }
 }

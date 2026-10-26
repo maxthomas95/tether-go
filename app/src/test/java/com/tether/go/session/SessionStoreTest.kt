@@ -50,6 +50,25 @@ class SessionStoreTest {
     assertEquals(listOf("a"), afterDelete.map { it.id })
   }
 
+  @Test
+  fun roundTripsToolSessionId() {
+    val backing = mutableMapOf<String, String>()
+    val session = sampleSession().copy(toolSessionId = "acea7208-d1f9-4c06-8350-657668b70f38")
+    PreferenceBackedSessionStore(MapStore(backing)).upsertSession(session)
+    assertEquals(listOf(session), PreferenceBackedSessionStore(MapStore(backing)).loadSessions())
+  }
+
+  @Test
+  fun loadsLegacyRecordsWithoutToolSessionId() {
+    val backing = mutableMapOf<String, String>()
+    PreferenceBackedSessionStore(MapStore(backing)).upsertSession(sampleSession())
+    // Drop the trailing (15th) field to reproduce a record written before it existed.
+    backing.replaceAll { _, value -> value.substringBeforeLast('\t') }
+
+    val restored = PreferenceBackedSessionStore(MapStore(backing)).loadSessions()
+    assertEquals(listOf(sampleSession()), restored)
+  }
+
   private class MapStore(
     private val values: MutableMap<String, String> = mutableMapOf(),
   ) : StringPreferenceStore {

@@ -147,8 +147,10 @@ Goal: improve the phone-owned experience before adding shared-session backends.
 
 - [planned] Better session lifecycle controls and clearer reconnect failure
   recovery.
-- [planned] CLI-native resume helpers or transcript pickers that do not parse or
-  replace the terminal stream.
+- [done] Claude transcript picker per saved host: browse and resume remote
+  Claude Code chats through a read-only exec side channel, plus
+  reconnect-resumes-conversation via pinned `--session-id`.
+- [planned] Transcript pickers for Codex, Copilot, and OpenCode.
 - [planned] Import/export of desktop-style environment configuration.
 - [planned] Usage and quota tracking as passive side-channel data.
 - [planned] More complete key management, including key labels, rotation
