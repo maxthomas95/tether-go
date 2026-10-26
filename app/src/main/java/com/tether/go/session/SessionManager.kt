@@ -2,6 +2,7 @@ package com.tether.go.session
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.tether.go.chats.ClaudeChatCatalog
 import com.tether.go.cli.CliToolId
 import com.tether.go.cli.LaunchCommandBuilder
 import com.tether.go.ssh.SshAuthMaterial
@@ -9,7 +10,7 @@ import com.tether.go.ssh.SshConnectionRequest
 import com.tether.go.ssh.SshConnectionTarget
 import com.tether.go.ssh.SshHostKeyPrompt
 import com.tether.go.ssh.SshHostStore
-import com.tether.go.ssh.SshPrivateKeyStore
+import com.tether.go.ssh.SshStoredAuthResolver
 import com.tether.go.ssh.SshTerminalPhase
 import com.tether.go.ssh.SshTerminalSession
 import com.tether.go.ssh.SshTerminalState
@@ -68,6 +69,9 @@ data class SessionDraft(
   val flags: List<String>,
   val env: Map<String, String>,
   val privateKeyId: String?,
+  /** Conversation to resume; fresh Claude sessions get a pinned id instead. */
+  val toolSessionId: String? = null,
+  val resumeToolSession: Boolean = false,
 )
 
 /**
@@ -81,7 +85,7 @@ data class SessionDraft(
 class SessionManager(
   private val scope: CoroutineScope,
   private val hostStore: SshHostStore,
-  private val privateKeyStore: SshPrivateKeyStore,
+  private val authResolver: SshStoredAuthResolver,
   private val store: SessionStore,
   private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -92,6 +96,8 @@ class SessionManager(
     var terminal: TerminalEmulator? = null
     var launchSent: Boolean = false
     var collectJob: Job? = null
+    /** The conversation's transcript is known to exist, so launch with resume. */
+    var resumeKnown: Boolean = false
   }
 
   private val runtimes = LinkedHashMap<String, Runtime>()
@@ -188,8 +194,13 @@ class SessionManager(
       privateKeyId = draft.privateKeyId,
       createdAtMillis = now,
       updatedAtMillis = now,
+      // Pin fresh Claude conversations to an id we choose (desktop does the
+      // same) so reconnecting after a dropped connection can resume them.
+      toolSessionId = draft.toolSessionId
+        ?: UUID.randomUUID().toString().takeIf { draft.cliTool == CliToolId.CLAUDE },
     )
     val runtime = addRuntime(session)
+    runtime.resumeKnown = draft.resumeToolSession && draft.toolSessionId != null
     store.upsertSession(session)
     connectRuntime(runtime, auth, appearance, terminalSize)
     recompute()
@@ -266,10 +277,7 @@ class SessionManager(
         states[session.id] = state
         if (state.phase == SshTerminalPhase.Connected && !runtime.launchSent) {
           runtime.launchSent = true
-          val command = LaunchCommandBuilder.build(runtime.session.launchProfile())
-          if (command.isNotBlank()) {
-            runtime.sshSession.sendInput((command + "\n").toByteArray(Charsets.UTF_8))
-          }
+          scope.launch { sendLaunchCommand(runtime) }
         }
         if (state.phase == SshTerminalPhase.Disconnected) {
           runtime.launchSent = false
@@ -331,14 +339,29 @@ class SessionManager(
     return terminal
   }
 
-  private fun resolveStoredAuth(session: Session): SshAuthMaterial? {
-    val keyId = session.privateKeyId ?: return null
-    val material = runCatching { privateKeyStore.loadPrivateKeyMaterial(keyId) }.getOrNull() ?: return null
-    return SshAuthMaterial.PrivateKey(
-      privateKeyData = material.privateKeyData,
-      passphrase = material.passphrase,
-    )
+  /**
+   * Type the launch command into the new shell. A Claude session with a pinned
+   * id resumes when its transcript exists on the host (checked over a separate
+   * exec channel; the PTY stream is untouched), else starts with that id.
+   */
+  private suspend fun sendLaunchCommand(runtime: Runtime) {
+    val session = runtime.session
+    val id = session.toolSessionId
+    val resume = when {
+      id == null -> false
+      runtime.resumeKnown || session.cliTool != CliToolId.CLAUDE -> true
+      else -> runtime.sshSession.exec(ClaudeChatCatalog.transcriptExistsCommand(id))
+        ?.let { ClaudeChatCatalog.transcriptExists(it.stdout) } == true
+    }
+    if (resume) runtime.resumeKnown = true
+    val command = LaunchCommandBuilder.build(session.launchProfile(resume = resume))
+    if (command.isNotBlank()) {
+      runtime.sshSession.sendInput((command + "\n").toByteArray(Charsets.UTF_8))
+    }
   }
+
+  private fun resolveStoredAuth(session: Session): SshAuthMaterial? =
+    authResolver.resolve(session.hostId, session.privateKeyId)
 
   private fun recompute() {
     _sessions.value = runtimes.values.map { runtime ->

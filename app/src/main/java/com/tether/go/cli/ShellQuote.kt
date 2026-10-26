@@ -9,6 +9,7 @@ package com.tether.go.cli
 object ShellQuote {
   private const val SINGLE_QUOTE_ESCAPE = "'\\''"
   private val ENV_NAME_RE = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
+  private val SAFE_BARE_ARG_RE = Regex("^[A-Za-z0-9._-]+$")
   private val NUL_CHAR: Char = Char(0)
 
   private fun assertNoNul(value: String, label: String) {
@@ -23,6 +24,10 @@ object ShellQuote {
     }
     return out.append("'").toString()
   }
+
+  /** Leave plain tokens (ids, simple names) bare; quote anything else. */
+  fun quoteArgIfNeeded(value: String): String =
+    if (SAFE_BARE_ARG_RE.matches(value)) value else quoteArg(value)
 
   fun quoteEnvAssignment(name: String, value: String): String {
     assertNoNul(name, "Environment variable name")

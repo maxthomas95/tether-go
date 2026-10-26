@@ -13,17 +13,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,34 +38,39 @@ import com.tether.go.cli.CliToolRegistry
 import com.tether.go.cli.LaunchCommandBuilder
 import com.tether.go.cli.LaunchProfile
 import com.tether.go.session.SessionDraft
-import com.tether.go.ssh.SecureStorageException
 import com.tether.go.ssh.SshAuthMaterial
 import com.tether.go.ssh.SshHostRecord
 import com.tether.go.ssh.SshHostStore
-import com.tether.go.ssh.SshPrivateKeyImportException
+import com.tether.go.ssh.SshPasswordStore
 import com.tether.go.ssh.SshPrivateKeyStore
 import com.tether.go.ssh.parseSshPort
-import com.tether.go.ui.components.PrivateKeyImportDialog
+import com.tether.go.ui.components.CheckboxRow
+import com.tether.go.ui.components.PrivateKeyImportFlow
 import com.tether.go.ui.components.SectionHeader
 import com.tether.go.ui.components.SelectableChip
+import com.tether.go.ui.components.SshAuthMode
+import com.tether.go.ui.components.SshAuthSection
 import com.tether.go.ui.components.TetherTextField
 import com.tether.go.ui.components.TetherTopBar
 import com.tether.go.ui.theme.LocalTetherTheme
 import java.util.UUID
 
-private enum class AuthMode { Password, PrivateKey }
-
 /**
  * New Session flow: pick or enter an SSH host, choose auth, the CLI tool, a
  * working directory, common launch flags, environment variables, and a label.
  * Builds a [SessionDraft] + [SshAuthMaterial] and hands them to [onStart].
+ * [initialHostId] / [initialWorkingDir] prefill the form (e.g. "New session"
+ * from a host's chat list).
  */
 @Composable
 fun NewSessionScreen(
   hostStore: SshHostStore,
   privateKeyStore: SshPrivateKeyStore,
+  passwordStore: SshPasswordStore,
   onCancel: () -> Unit,
   onStart: (SessionDraft, SshAuthMaterial) -> Unit,
+  initialHostId: String? = null,
+  initialWorkingDir: String? = null,
 ) {
   val theme = LocalTetherTheme.current
 
@@ -81,19 +84,19 @@ fun NewSessionScreen(
   var port by remember { mutableStateOf("22") }
   var username by remember { mutableStateOf("") }
   var password by remember { mutableStateOf("") }
-  var authMode by remember { mutableStateOf(AuthMode.Password) }
+  var authMode by remember { mutableStateOf(SshAuthMode.Password) }
+  var rememberPassword by remember { mutableStateOf(true) }
   var selectedKeyId by remember { mutableStateOf<String?>(null) }
 
   var cliTool by remember { mutableStateOf(CliToolId.CLAUDE) }
   var customBinary by remember { mutableStateOf("") }
-  var workingDir by remember { mutableStateOf("") }
+  var workingDir by remember { mutableStateOf(initialWorkingDir.orEmpty()) }
   var selectedFlags by remember { mutableStateOf(setOf<String>()) }
   var extraArgs by remember { mutableStateOf("") }
   var envRows by remember { mutableStateOf(listOf<Pair<String, String>>()) }
   var label by remember { mutableStateOf("") }
 
   var showImport by remember { mutableStateOf(false) }
-  var importError by remember { mutableStateOf<String?>(null) }
   var keyError by remember { mutableStateOf<String?>(null) }
 
   val portValid = parseSshPort(port) != null
@@ -103,8 +106,8 @@ fun NewSessionScreen(
     LaunchProfile(cliTool, customBinary.takeIf { it.isNotBlank() }, workingDir.takeIf { it.isNotBlank() }, flags, env),
   )
   val authReady = when (authMode) {
-    AuthMode.Password -> password.isNotEmpty()
-    AuthMode.PrivateKey -> selectedKeyId != null
+    SshAuthMode.Password -> password.isNotEmpty()
+    SshAuthMode.PrivateKey -> selectedKeyId != null
   }
   val canStart = host.isNotBlank() && username.isNotBlank() && portValid && authReady &&
     (cliTool != CliToolId.CUSTOM || customBinary.isNotBlank())
@@ -117,8 +120,17 @@ fun NewSessionScreen(
     val keyId = record.privateKeyId
     if (keyId != null && savedKeys.any { it.id == keyId }) {
       selectedKeyId = keyId
-      authMode = AuthMode.PrivateKey
+      authMode = SshAuthMode.PrivateKey
+    } else if (passwordStore.hasPassword(record.id)) {
+      // Decrypting can fail when the Keystore key wants a fresher device
+      // unlock; the field then stays empty for the user to type.
+      password = runCatching { passwordStore.loadPassword(record.id) }.getOrNull().orEmpty()
+      authMode = SshAuthMode.Password
     }
+  }
+
+  LaunchedEffect(initialHostId) {
+    savedHosts.firstOrNull { it.id == initialHostId }?.let(::applyHost)
   }
 
   fun ensureHostSaved(parsedPort: Int): String {
@@ -134,7 +146,8 @@ fun NewSessionScreen(
       username = username.trim(),
       createdAtMillis = existing?.createdAtMillis ?: now,
       updatedAtMillis = now,
-      privateKeyId = if (authMode == AuthMode.PrivateKey) selectedKeyId else existing?.privateKeyId,
+      privateKeyId = if (authMode == SshAuthMode.PrivateKey) selectedKeyId else existing?.privateKeyId,
+      label = existing?.label,
     )
     savedHosts = hostStore.upsertHost(record)
     selectedHostId = record.id
@@ -144,8 +157,8 @@ fun NewSessionScreen(
   fun start() {
     val parsedPort = parseSshPort(port) ?: return
     val auth = when (authMode) {
-      AuthMode.Password -> SshAuthMaterial.Password(password)
-      AuthMode.PrivateKey -> {
+      SshAuthMode.Password -> SshAuthMaterial.Password(password)
+      SshAuthMode.PrivateKey -> {
         val keyId = selectedKeyId ?: return
         val material = runCatching { privateKeyStore.loadPrivateKeyMaterial(keyId) }.getOrElse {
           keyError = "Private key storage could not be read"
@@ -158,6 +171,10 @@ fun NewSessionScreen(
       }
     }
     val hostId = ensureHostSaved(parsedPort)
+    if (authMode == SshAuthMode.Password && rememberPassword) {
+      // Best effort: a storage failure must not block starting the session.
+      runCatching { passwordStore.savePassword(hostId, password) }
+    }
     onStart(
       SessionDraft(
         label = label,
@@ -170,7 +187,7 @@ fun NewSessionScreen(
         workingDir = workingDir.takeIf { it.isNotBlank() },
         flags = flags,
         env = env,
-        privateKeyId = if (authMode == AuthMode.PrivateKey) selectedKeyId else null,
+        privateKeyId = if (authMode == SshAuthMode.PrivateKey) selectedKeyId else null,
       ),
       auth,
     )
@@ -200,7 +217,7 @@ fun NewSessionScreen(
         ) {
           savedHosts.forEach { record ->
             SelectableChip(
-              label = record.displayName,
+              label = record.label ?: record.displayName,
               selected = record.id == selectedHostId,
               onClick = { applyHost(record) },
             )
@@ -214,24 +231,24 @@ fun NewSessionScreen(
       TetherTextField(username, { username = it }, "Username", modifier = Modifier.fillMaxWidth())
 
       // ── Auth ─────────────────────────────────────────────────────
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SelectableChip("Password", authMode == AuthMode.Password, { authMode = AuthMode.Password })
-        SelectableChip("Private key", authMode == AuthMode.PrivateKey, { authMode = AuthMode.PrivateKey })
-      }
-      if (authMode == AuthMode.Password) {
-        TetherTextField(password, { password = it }, "Password", isPassword = true, modifier = Modifier.fillMaxWidth())
-      } else {
-        Row(
-          modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          SelectableChip("+ Import key", false, { importError = null; showImport = true })
-          savedKeys.forEach { key ->
-            SelectableChip(key.label, key.id == selectedKeyId, { selectedKeyId = key.id; keyError = null })
-          }
-        }
-        keyError?.let { Text(it, color = theme.statusDead, style = MaterialTheme.typography.labelMedium) }
+      SshAuthSection(
+        mode = authMode,
+        onModeChange = { authMode = it },
+        password = password,
+        onPasswordChange = { password = it },
+        keys = savedKeys,
+        selectedKeyId = selectedKeyId,
+        onSelectKey = { selectedKeyId = it; keyError = null },
+        onImportClick = { showImport = true },
+        keyError = keyError,
+      )
+      if (authMode == SshAuthMode.Password) {
+        CheckboxRow(
+          checked = rememberPassword,
+          onCheckedChange = { rememberPassword = it },
+          label = "Remember password on this phone",
+          detail = "Encrypted with the Android Keystore",
+        )
       }
 
       // ── Launch ───────────────────────────────────────────────────
@@ -256,22 +273,15 @@ fun NewSessionScreen(
       if (toolFlags.isNotEmpty()) {
         SectionHeader("Flags")
         toolFlags.forEach { flag ->
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Checkbox(
-              checked = selectedFlags.contains(flag.flag),
-              onCheckedChange = { checked ->
-                selectedFlags = if (checked) selectedFlags + flag.flag else selectedFlags - flag.flag
-              },
-              colors = CheckboxDefaults.colors(checkedColor = theme.accent, uncheckedColor = theme.border),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-              Text(flag.label, color = theme.textPrimary, style = MaterialTheme.typography.bodyMedium)
-              Text(flag.flag, color = theme.textMuted, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-            }
-          }
+          CheckboxRow(
+            checked = selectedFlags.contains(flag.flag),
+            onCheckedChange = { checked ->
+              selectedFlags = if (checked) selectedFlags + flag.flag else selectedFlags - flag.flag
+            },
+            label = flag.label,
+            detail = flag.flag,
+            detailMonospace = true,
+          )
         }
       }
       TetherTextField(extraArgs, { extraArgs = it }, "Extra arguments", modifier = Modifier.fillMaxWidth(), placeholder = "--model opus")
@@ -331,25 +341,14 @@ fun NewSessionScreen(
   }
 
   if (showImport) {
-    PrivateKeyImportDialog(
-      error = importError,
-      onDismiss = { showImport = false; importError = null },
-      onImport = { lbl, pem, pass ->
-        runCatching { privateKeyStore.importPrivateKey(lbl, pem, pass) }
-          .onSuccess { metadata ->
-            savedKeys = runCatching { privateKeyStore.loadPrivateKeys() }.getOrDefault(savedKeys)
-            selectedKeyId = metadata.id
-            authMode = AuthMode.PrivateKey
-            showImport = false
-            importError = null
-          }
-          .onFailure { err ->
-            importError = when (err) {
-              is SshPrivateKeyImportException -> err.message
-              is SecureStorageException -> "Private key storage could not be updated"
-              else -> "Private key could not be imported"
-            }
-          }
+    PrivateKeyImportFlow(
+      privateKeyStore = privateKeyStore,
+      onDismiss = { showImport = false },
+      onImported = { metadata ->
+        savedKeys = runCatching { privateKeyStore.loadPrivateKeys() }.getOrDefault(savedKeys)
+        selectedKeyId = metadata.id
+        authMode = SshAuthMode.PrivateKey
+        showImport = false
       },
     )
   }

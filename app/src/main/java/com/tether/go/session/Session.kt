@@ -2,6 +2,7 @@ package com.tether.go.session
 
 import com.tether.go.cli.CliToolId
 import com.tether.go.cli.LaunchProfile
+import com.tether.go.cli.ToolSessionLaunch
 
 /**
  * Lifecycle status of a phone-owned session, surfaced in the UI as a status
@@ -39,14 +40,22 @@ data class Session(
   val privateKeyId: String?,
   val createdAtMillis: Long,
   val updatedAtMillis: Long,
+  /**
+   * CLI-native conversation id (a Claude session UUID) this session launches
+   * with, so a reconnect continues the same conversation instead of starting
+   * a new one. Null for tools/sessions without one.
+   */
+  val toolSessionId: String? = null,
 ) {
   val endpointLabel: String get() = "$username@$host:$port"
 
-  fun launchProfile(): LaunchProfile = LaunchProfile(
+  /** [resume] picks `--resume <id>` over pinning a fresh conversation id. */
+  fun launchProfile(resume: Boolean = false): LaunchProfile = LaunchProfile(
     cliTool = cliTool,
     customBinary = customBinary,
     workingDir = workingDir,
     flags = flags,
     env = env,
+    toolSession = toolSessionId?.let { ToolSessionLaunch(id = it, resume = resume) },
   )
 }
