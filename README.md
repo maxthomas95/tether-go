@@ -86,13 +86,38 @@ a populated field blocks Start: remove that manual selector or clear the guided
 field. No manual token is silently removed or replaced. Incomplete known
 options, ambiguous short groups, and `--` also block guided launch.
 
-The controls are temporary New Session input. Only the resolved, shell-quoted
-flags are saved in existing session metadata, so restart/reconnect uses the same
-command without a new schema field. Clearing controls restores your original
-Extra arguments. Switching CLI clears all guided settings and resume mode/ID,
-but retains Extra arguments for revalidation. For advanced shell syntax, choose
-**Default / manual** and clear every guided launch field. These controls do not
-change running sessions or encrypt launch metadata; never enter secrets.
+### Saved defaults versus this session
+
+In **Settings → CLI launch defaults**, choose Claude, OpenCode, or Codex and
+explicitly **Save** the guided choices you want for future sessions. All defaults
+start blank; existing behavior is unchanged until you save. **Clear defaults**
+resets only that CLI, as does saving all-empty fields. Invalid input cannot be
+saved. **Cancel edits**, Back, or changing the selected CLI does not save an
+unfinished draft. Save before switching tools or leaving Settings.
+
+**New session** loads a snapshot for the initially selected CLI and reloads that
+CLI's saved defaults whenever you switch tools. Per-session edits never rewrite
+Settings. Tool changes still reset resume mode/ID and common-flag selections,
+while retaining Extra arguments for revalidation. An overlapping manual selector
+shows an error; defaults never replace or remove Extra arguments.
+
+**Use no defaults for this session** clears the guided fields without changing
+the saved defaults. **Restore saved defaults** reloads them. Both actions preserve
+Extra arguments and any explicit resume ID. For advanced shell syntax, choose
+**Default / manual** and clear every guided launch field. If a saved record is
+unreadable or unsupported, launch is blocked until you explicitly use no defaults
+for this session or successfully restore them. Settings preserves that record
+and blocks Save until you explicitly clear it; a failed save/clear is reported.
+
+Only the resolved, shell-quoted flags are saved in existing session metadata, so
+restart/reconnect uses the same command even after you change or clear global
+defaults. No session schema field is added and existing/running sessions do not
+change. Defaults are phone-local app-private preferences, not desktop/backend
+sync, a named Tether launch profile, or encrypted secret storage. Only the
+validated model/agent/native-profile/reasoning identifiers are saved here: no
+resume IDs, raw arguments, environment values, passwords, or private keys.
+Never enter secrets. Android applies preference changes in memory and writes
+them to disk asynchronously; Save is not a synchronous disk-durability guarantee.
 
 ## Resuming by Native ID
 

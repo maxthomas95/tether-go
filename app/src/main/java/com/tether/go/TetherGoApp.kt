@@ -315,6 +315,7 @@ private fun ScreenContent(
     )
 
     Screen.NewSession -> NewSessionScreen(
+      launchDefaultsStore = service.settings.launchDefaults,
       hostStore = service.hostStore,
       privateKeyStore = service.privateKeyStore,
       onCancel = nav.back,
@@ -342,6 +343,7 @@ private fun ScreenContent(
     )
 
     Screen.Settings -> SettingsScreen(
+      launchDefaultsStore = service.settings.launchDefaults,
       currentThemeName = themeName,
       onThemeChange = onThemeChange,
       fontSize = fontSize,

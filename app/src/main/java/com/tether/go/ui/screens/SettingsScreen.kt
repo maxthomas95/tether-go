@@ -56,6 +56,8 @@ import com.tether.go.notifications.NotificationAccessStatus
 import com.tether.go.notifications.NotificationService
 import com.tether.go.notifications.notificationAccessPolicy
 import com.tether.go.settings.SettingsStore
+import com.tether.go.settings.LaunchDefaultsStore
+import com.tether.go.ui.components.LaunchDefaultsEditor
 import com.tether.go.ui.branding.TetherLogo
 import com.tether.go.ui.components.SectionHeader
 import com.tether.go.ui.components.TetherTopBar
@@ -64,11 +66,12 @@ import com.tether.go.ui.theme.TetherThemes
 
 /**
  * Settings: theme picker (full desktop palette set, Mocha default), terminal
- * font size, notification preferences/access, and an About card.
+ * font size, notification preferences/access, explicit CLI defaults, and an About card.
  * Theme + font changes are applied live.
  */
 @Composable
 fun SettingsScreen(
+  launchDefaultsStore: LaunchDefaultsStore,
   currentThemeName: String,
   onThemeChange: (String) -> Unit,
   fontSize: Int,
@@ -176,6 +179,8 @@ fun SettingsScreen(
         )
       }
       NotificationAccessCard(notificationsEnabled)
+
+      LaunchDefaultsEditor(launchDefaultsStore)
 
       SectionHeader("About")
       Column(

@@ -147,9 +147,49 @@ not verify remote model, agent, profile, or reasoning availability:
   safe name such as `resume`/`fork` if configured. Combine settings with explicit
   resume IDs and confirm the remote CLI accepts the invocation.
 - [ ] Clear fields, change CLI repeatedly, cancel/back/reopen, and fold/unfold.
-  No stale guided values cross tools; retained Extra arguments are revalidated;
+  No stale guided values cross tools: each switch loads only that CLI's saved
+  defaults and resets resume mode/ID. Retained Extra arguments are revalidated;
   repeated Start taps never duplicate the launch.
 - [ ] Restart/reconnect reproduces resolved flags both with and without an
   explicit resume ID. Existing fourteen-/fifteen-/sixteen-field records retain
   flags, environment, timestamps, mute, and resume behavior. No new schema
   column or app-saved launch profile is introduced.
+
+### Phone-local CLI Launch Defaults
+
+These UI/device checks remain outstanding; JVM store/state tests are not device QA:
+
+- [ ] Fresh install/no saved records starts with blank fields for every tool;
+  Copilot and Custom have no managed-default editor or preference access.
+- [ ] Settings Save normalizes and persists only valid fields for the selected
+  Claude/OpenCode/Codex CLI. Other tools' records remain unchanged. Invalid typing
+  stays visible with an inline message and cannot be saved.
+- [ ] Change tools repeatedly, Cancel edits, Back, reopen Settings, and fold/unfold
+  while editing. Unsaved edits never become defaults. Repeated Save/Clear actions
+  do not affect another tool. Clear and all-empty Save reset only this CLI.
+  Exercise tool-switch then Save/Clear/Cancel/field edit before recomposition:
+  callbacks from the old editor must not act on the newly selected CLI.
+- [ ] New Session starts from the selected tool's saved snapshot. Edit fields,
+  cancel/back, and reopen: the per-session override never changes Settings.
+- [ ] Conflicting Extra arguments remain byte-for-byte visible and block Start.
+  Use no defaults clears only guided fields; Restore saved defaults reloads them.
+  Both retain manual arguments and explicit resume ID/mode. Tool change still
+  resets resume ID/mode and common flags, with no cross-tool default leakage.
+  Exercise tool-switch then Restore/field edit before recomposition: stale
+  callbacks must not copy the previous CLI's defaults into the current tool.
+  Delayed old-tool resume mode/ID edits and common-flag toggles must likewise
+  leave the new tool's reset state intact; retained Extra arguments stay shared.
+- [ ] Simulate malformed/unknown-version defaults: show a recoverable error,
+  preserve the record, block Save and Start rather than silently discarding it.
+  Explicit Settings Clear recovers; no-default use acknowledges the error only
+  for this session. Failed save/clear/read actions surface an error, not success.
+  After a valid preview, force Restore to fail and immediately tap Start before
+  recomposition: current-state validation must block all key reads/host saves/SSH.
+  Likewise, a same-frame tool/field/manual-argument change must use the current
+  validated profile rather than the earlier preview.
+- [ ] Start a session using saved defaults, then change/clear them in Settings.
+  Existing/running sessions and reconnect retain their original resolved flags,
+  explicit ID and sixteen-field schema; no defaults lookup changes their launch.
+- [ ] Confirm local preferences survive ordinary process restart; do not interpret
+  an `apply()`/Save return as proof of synchronous disk durability. No host/native
+  config inspection, secret storage, desktop/backend sync or model lookup occurs.

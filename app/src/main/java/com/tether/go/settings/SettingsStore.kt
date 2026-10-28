@@ -2,10 +2,12 @@ package com.tether.go.settings
 
 import android.content.Context
 
-/** Lightweight app preferences: selected theme and terminal font size. */
+/** Phone-local app preferences. Launch defaults are saved only on explicit user intent. */
 class SettingsStore(context: Context) {
   private val prefs = context.applicationContext
     .getSharedPreferences("tether_go_settings", Context.MODE_PRIVATE)
+
+  val launchDefaults: LaunchDefaultsStore = SharedPreferencesLaunchDefaultsStore(context)
 
   fun themeName(): String = prefs.getString(KEY_THEME, null) ?: DEFAULT_THEME
 

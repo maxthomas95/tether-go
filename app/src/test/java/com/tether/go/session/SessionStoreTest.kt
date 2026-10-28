@@ -5,6 +5,7 @@ import com.tether.go.cli.GuidedLaunchFlags
 import com.tether.go.cli.GuidedLaunchSelection
 import com.tether.go.cli.LaunchCommandBuilder
 import com.tether.go.ssh.StringPreferenceStore
+import com.tether.go.settings.PreferenceBackedLaunchDefaultsStore
 import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -143,6 +144,38 @@ class SessionStoreTest {
       assertEquals(16, backing.getValue("session_records_v1").split('\t').size)
       assertEquals(session, restored)
       assertEquals(flags, restored.flags)
+      assertEquals(command, LaunchCommandBuilder.build(restored.launchProfile()))
+    } }
+  }
+
+  @Test
+  fun laterGlobalDefaultEditsAndClearsNeverChangeSavedSessionFlagsOrReconnectCommand() {
+    val cases = listOf(
+      CliToolId.CLAUDE to GuidedLaunchSelection(model = "sonnet[1m]"),
+      CliToolId.OPENCODE to GuidedLaunchSelection(model = "provider/model", agent = "build"),
+      CliToolId.CODEX to GuidedLaunchSelection(model = "model", nativeProfile = "work", reasoningEffort = "high"),
+    )
+    cases.forEach { (tool, selection) -> listOf(null, "explicit-id").forEach { resumeId ->
+      val defaultsBacking = mutableMapOf<String, String>()
+      val defaults = PreferenceBackedLaunchDefaultsStore(MapStore(defaultsBacking))
+      defaults.save(tool, selection)
+      val snapshot = defaults.load(tool)
+      val flags = GuidedLaunchFlags.resolve(tool, listOf("'literal with spaces'"), snapshot)
+      val session = sampleSession().copy(cliTool = tool, flags = flags, resumeToolSessionId = resumeId)
+      val command = LaunchCommandBuilder.build(session.launchProfile())
+      val sessionBacking = mutableMapOf<String, String>()
+      val sessions = PreferenceBackedSessionStore(MapStore(sessionBacking))
+      sessions.upsertSession(session)
+      val originalRecord = sessionBacking.toMap()
+      defaults.save(tool, GuidedLaunchSelection(model = "later-model"))
+      assertEquals(selection, snapshot)
+      assertEquals(flags, session.flags)
+      assertEquals(originalRecord, sessionBacking)
+      assertEquals(command, LaunchCommandBuilder.build(sessions.loadSessions().single().launchProfile()))
+      defaults.clear(tool)
+      val restored = PreferenceBackedSessionStore(MapStore(sessionBacking)).loadSessions().single()
+      assertEquals(session, restored)
+      assertEquals(16, sessionBacking.getValue("session_records_v1").split('\t').size)
       assertEquals(command, LaunchCommandBuilder.build(restored.launchProfile()))
     } }
   }

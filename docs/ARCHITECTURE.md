@@ -84,7 +84,7 @@ Remote host / VM
 
 ```
 TetherGoApp (root)
-    - stores: SshHostStore, SshPrivateKeyStore, SessionStore, SettingsStore
+    - stores: SshHostStore, SshPrivateKeyStore, SessionStore, SettingsStore (including LaunchDefaultsStore)
     - SessionManager (alive for the app process)
     - theme + font state, in-memory navigation back stack
         |
@@ -92,7 +92,7 @@ TetherGoApp (root)
         +-- NewSessionScreen    (host/auth/CLI/dir/flags/env/label -> SessionDraft)
         +-- TerminalScreen      (termlib terminal + mobile quick bar)
         +-- HostsScreen         (manage hosts + imported keys)
-        +-- SettingsScreen      (theme picker, terminal font, about)
+        +-- SettingsScreen      (theme, terminal font, notifications, CLI defaults, about)
 ```
 
 - **SessionManager** holds one runtime per session: an `SshTerminalSession`
@@ -115,9 +115,10 @@ TetherGoApp (root)
   publish an existing session error without allocating a terminal/opening SSH.
   Nonempty environment assignments are prefixed with `env`; zero-env commands
   are unchanged.
-- **Guided launch settings** are transient `GuidedLaunchSelection` UI state:
+- **Guided launch settings** use immutable `GuidedLaunchSelection` snapshots:
   Claude model, OpenCode model/agent, and Codex model/native profile/reasoning.
-  The pure `GuidedLaunchFlags.resolve` helper trims guided input and returns the
+  The pure `GuidedLaunchFlags.normalize` validator is shared by saved defaults
+  and per-session resolution. `GuidedLaunchFlags.resolve` returns the
   original fragments untouched when all fields are empty. Active fields use
   desktop-compatible bounded identifier allowlists, the literal-only POSIX
   argument reader, and a value-aware conflict scan. Overlapping manual selectors,
@@ -129,6 +130,31 @@ TetherGoApp (root)
   transport changes are needed. Native profile means a pre-existing remote
   Codex configuration reference, not an app-saved launch profile. There is no
   runtime catalog, account lookup, or availability verification.
+- **CLI launch defaults** use `PreferenceBackedLaunchDefaultsStore` over the
+  existing `StringPreferenceStore` abstraction. Each supported CLI owns one
+  `guided_launch_<cli>_v1` key in `tether_go_launch_defaults`, containing one
+  version/tool/model/agent/native-profile/reasoning record. The shared identifier
+  validator excludes tab delimiters. Exact field count, version, tool identity,
+  length, supported fields and identifiers are checked on read. Missing records
+  are empty; malformed/unsupported records raise recoverable errors and are
+  never automatically deleted or overwritten, including on empty Save. Only
+  explicit Clear bypasses that read guard. Save validates before accessing
+  preferences; all-empty Save clears just the selected key. Each operation is
+  one whole-record put/remove, not independent field writes. SharedPreferences
+  `apply()` updates memory and flushes asynchronously, not a disk-durability
+  acknowledgment. No secret-bearing data, resume IDs or raw arguments are added.
+  Copilot and Custom have no managed defaults and do not access these keys.
+  Settings uses controlled shared fields and explicit Save/Clear/Cancel; changing
+  tool or leaving discards unsaved edits. New Session snapshots defaults on entry
+  and tool change, blocks launch on a failed load until explicit bypass/recovery,
+  and never writes the defaults store. Clear-for-this-session and restore affect
+  only guided choices, not manual arguments or explicit resume intent. Later
+  defaults changes cannot alter existing Session flags or reconnect commands.
+  `SessionLaunchState.resolveLaunch` is shared by preview and Start; Start resolves
+  afresh from current inputs before key reads or host saves, never from a cached
+  preview. Editor actions and default-restore callbacks reject a stale composed
+  tool so rapid switches cannot apply another CLI's draft/defaults.
+  This is phone-local preference parity, not backend sync or named launch profiles.
 - **Theme** tokens (`TetherTheme`) are ported 1:1 from the desktop renderer
   theme registry and provided via `LocalTetherTheme`; the same tokens drive the
   Material3 color scheme and the terminal ANSI palette.
@@ -152,8 +178,9 @@ TetherGoApp (root)
 
 New Session offers **Default / manual** and **Resume by ID** for Claude, Codex,
 Copilot, and OpenCode. Custom cannot enable guided mode. Tool changes clear the
-mode/ID and all guided launch settings to prevent cross-tool reuse, while retained Extra arguments are checked
-again when guided mode is selected. The ID is bounded to 256 characters, cannot
+mode/ID and replace guided choices with the selected CLI's saved-default snapshot
+to prevent cross-tool reuse, while retained Extra arguments are checked again
+when guided mode is selected. The ID is bounded to 256 characters, cannot
 contain whitespace/control characters or start with `-`, and is quoted as one
 shell argument. It is not verified against the remote CLI's history.
 

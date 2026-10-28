@@ -1,6 +1,6 @@
 package com.tether.go.cli
 
-/** Transient New Session controls, not a saved app launch profile or catalog. */
+/** Bounded native CLI choices, not an app launch profile or model catalog. */
 data class GuidedLaunchSelection(
   val model: String = "",
   val agent: String = "",
@@ -18,17 +18,14 @@ object GuidedLaunchFlags {
   }
   private data class ValueOption(val field: Field? = null, val config: Boolean = false)
 
-  fun resolve(tool: CliToolId, rawFlags: List<String>, selection: GuidedLaunchSelection): List<String> {
+  val supportedTools: List<CliToolId> = listOf(CliToolId.CLAUDE, CliToolId.OPENCODE, CliToolId.CODEX)
+
+  /** Shared validation for saved defaults and per-session controls; no manual flags are read. */
+  fun normalize(tool: CliToolId, selection: GuidedLaunchSelection): GuidedLaunchSelection {
     val normalized = GuidedLaunchSelection(
       selection.model.trim(), selection.agent.trim(), selection.nativeProfile.trim(), selection.reasoningEffort.trim(),
     )
-    val active = linkedMapOf(
-      Field.Model to normalized.model, Field.Agent to normalized.agent,
-      Field.Profile to normalized.nativeProfile, Field.Reasoning to normalized.reasoningEffort,
-    ).filterValues { it.isNotEmpty() }
-    // Do not even tokenize the manual path. Clearing controls restores the
-    // caller's exact fragments, whitespace, quotes and advanced shell syntax.
-    if (active.isEmpty()) return rawFlags
+    val active = activeFields(normalized)
     val supported = when (tool) {
       CliToolId.CLAUDE -> setOf(Field.Model)
       CliToolId.OPENCODE -> setOf(Field.Model, Field.Agent)
@@ -42,6 +39,20 @@ object GuidedLaunchFlags {
         "${field.label} must be one identifier of at most $MAX_VALUE_LENGTH characters, without whitespace, quotes, or shell operators, and cannot start with '-'."
       }
     }
+    return normalized
+  }
+
+  private fun activeFields(selection: GuidedLaunchSelection): Map<Field, String> = linkedMapOf(
+    Field.Model to selection.model, Field.Agent to selection.agent,
+    Field.Profile to selection.nativeProfile, Field.Reasoning to selection.reasoningEffort,
+  ).filterValues { it.isNotEmpty() }
+
+  fun resolve(tool: CliToolId, rawFlags: List<String>, selection: GuidedLaunchSelection): List<String> {
+    val normalized = normalize(tool, selection)
+    val active = activeFields(normalized)
+    // Do not even tokenize the manual path. Clearing controls restores the
+    // caller's exact fragments, whitespace, quotes and advanced shell syntax.
+    if (active.isEmpty()) return rawFlags
     val manual = PosixLiteralArguments.parse(rawFlags.joinToString(" "))
     checkManualOptions(tool, manual, active.keys)
     val generated = buildList {

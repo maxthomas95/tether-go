@@ -23,6 +23,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,11 +39,10 @@ import androidx.compose.ui.unit.sp
 import com.tether.go.cli.CliToolId
 import com.tether.go.cli.CliToolRegistry
 import com.tether.go.cli.GuidedLaunchFlags
-import com.tether.go.cli.GuidedLaunchSelection
-import com.tether.go.cli.LaunchCommandBuilder
-import com.tether.go.cli.LaunchProfile
 import com.tether.go.cli.NativeResume
+import com.tether.go.cli.SessionLaunchState
 import com.tether.go.session.SessionDraft
+import com.tether.go.settings.LaunchDefaultsStore
 import com.tether.go.ssh.SecureStorageException
 import com.tether.go.ssh.SshAuthMaterial
 import com.tether.go.ssh.SshHostRecord
@@ -50,6 +50,7 @@ import com.tether.go.ssh.SshHostStore
 import com.tether.go.ssh.SshPrivateKeyImportException
 import com.tether.go.ssh.SshPrivateKeyStore
 import com.tether.go.ssh.parseSshPort
+import com.tether.go.ui.components.GuidedLaunchFields
 import com.tether.go.ui.components.PrivateKeyImportDialog
 import com.tether.go.ui.components.SectionHeader
 import com.tether.go.ui.components.SelectableChip
@@ -67,6 +68,7 @@ private enum class AuthMode { Password, PrivateKey }
  */
 @Composable
 fun NewSessionScreen(
+  launchDefaultsStore: LaunchDefaultsStore,
   hostStore: SshHostStore,
   privateKeyStore: SshPrivateKeyStore,
   onCancel: () -> Unit,
@@ -87,10 +89,15 @@ fun NewSessionScreen(
   var authMode by remember { mutableStateOf(AuthMode.Password) }
   var selectedKeyId by remember { mutableStateOf<String?>(null) }
 
-  var cliTool by remember { mutableStateOf(CliToolId.CLAUDE) }
-  var guidedResume by remember { mutableStateOf(false) }
-  var resumeId by remember { mutableStateOf("") }
-  var guidedSelection by remember { mutableStateOf(GuidedLaunchSelection()) }
+  var launchState by remember(launchDefaultsStore) {
+    mutableStateOf(SessionLaunchState(CliToolId.CLAUDE).restoreDefaults(
+      runCatching { launchDefaultsStore.load(CliToolId.CLAUDE) },
+    ))
+  }
+  val cliTool = launchState.tool
+  val guidedResume = launchState.guidedResume
+  val resumeId = launchState.resumeId
+  val guidedSelection = launchState.selection
   var customBinary by remember { mutableStateOf("") }
   var workingDir by remember { mutableStateOf("") }
   var selectedFlags by remember { mutableStateOf(setOf<String>()) }
@@ -106,16 +113,17 @@ fun NewSessionScreen(
   val portValid = parseSshPort(port) != null
   // Keep manual input separate: clearing controls restores it without rewriting.
   val rawFlags = selectedFlags.toList() + listOf(extraArgs).filter { it.isNotBlank() }
-  val resolvedFlags = runCatching { GuidedLaunchFlags.resolve(cliTool, rawFlags, guidedSelection) }
   val env = envRows.filter { it.first.isNotBlank() }.associate { it.first.trim() to it.second }
-  val profile = resolvedFlags.map { flags -> LaunchProfile(
-    cliTool, customBinary.takeIf { it.isNotBlank() }, workingDir.takeIf { it.isNotBlank() }, flags, env,
-    resumeToolSessionId = if (guidedResume) resumeId else null,
-  ) }
-  val preview = profile.mapCatching { LaunchCommandBuilder.build(it) }
+  fun resolveCurrentLaunch() = launchState.resolveLaunch(
+    rawFlags = selectedFlags.toList() + listOf(extraArgs).filter { it.isNotBlank() },
+    customBinary = customBinary,
+    workingDir = workingDir,
+    env = envRows.filter { it.first.isNotBlank() }.associate { it.first.trim() to it.second },
+  )
+  val preview = runCatching { resolveCurrentLaunch().command }
   val validationError = preview.exceptionOrNull()?.message
   val resumeIdInvalid = guidedResume && runCatching { NativeResume.validateSessionId(resumeId) }.isFailure
-  var startError by remember(cliTool, rawFlags, guidedSelection, guidedResume, resumeId, customBinary, workingDir, env) {
+  var startError by remember(launchState, rawFlags, customBinary, workingDir, env) {
     mutableStateOf<String?>(null)
   }
   val authReady = when (authMode) {
@@ -158,13 +166,19 @@ fun NewSessionScreen(
   }
 
   fun start() {
-    // Read the current state directly, not only the last composed canStart.
-    if (starting || !canStart) return
+    // Event callbacks can run before recomposition. Never launch a cached preview.
+    if (starting || host.isBlank() || username.isBlank()) return
+    val parsedPort = parseSshPort(port) ?: return
+    if (authMode == AuthMode.Password && password.isEmpty()) return
+    if (authMode == AuthMode.PrivateKey && selectedKeyId == null) return
     starting = true
     var launched = false
     try {
-      val launchProfile = profile.getOrNull() ?: return
-      val parsedPort = parseSshPort(port) ?: return
+      // Validate the current launch snapshot before key reads, host saves or SSH.
+      val launchProfile = runCatching { resolveCurrentLaunch().profile }.getOrElse {
+        startError = it.message ?: "Session could not be launched"
+        return
+      }
       val auth = when (authMode) {
         AuthMode.Password -> SshAuthMaterial.Password(password)
         AuthMode.PrivateKey -> {
@@ -187,11 +201,11 @@ fun NewSessionScreen(
           host = host.trim(),
           port = parsedPort,
           username = username.trim(),
-          cliTool = cliTool,
-          customBinary = customBinary.takeIf { it.isNotBlank() },
-          workingDir = workingDir.takeIf { it.isNotBlank() },
+          cliTool = launchProfile.cliTool,
+          customBinary = launchProfile.customBinary,
+          workingDir = launchProfile.workingDir,
           flags = launchProfile.flags,
-          env = env,
+          env = launchProfile.env,
           privateKeyId = if (authMode == AuthMode.PrivateKey) selectedKeyId else null,
           resumeToolSessionId = launchProfile.resumeToolSessionId,
         ),
@@ -269,12 +283,9 @@ fun NewSessionScreen(
       ) {
         CliToolRegistry.all.forEach { def ->
           SelectableChip(def.displayName, def.id == cliTool, {
-            if (cliTool != def.id) {
-              cliTool = def.id
+            if (launchState.tool != def.id) {
+              launchState = launchState.changeTool(def.id, runCatching { launchDefaultsStore.load(def.id) })
               selectedFlags = emptySet()
-              guidedResume = false
-              resumeId = ""
-              guidedSelection = GuidedLaunchSelection()
             }
           })
         }
@@ -284,15 +295,15 @@ fun NewSessionScreen(
       }
       SectionHeader("Session launch")
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SelectableChip("Default / manual", !guidedResume, { guidedResume = false })
+        SelectableChip("Default / manual", !guidedResume, { if (launchState.tool == cliTool) launchState = launchState.copy(guidedResume = false) })
         SelectableChip(
-          "Resume by ID", guidedResume, { guidedResume = true },
+          "Resume by ID", guidedResume, { if (launchState.tool == cliTool) launchState = launchState.copy(guidedResume = true) },
           enabled = CliToolRegistry.byId(cliTool).supportsSessionResume,
         )
       }
       if (guidedResume) {
         TetherTextField(
-          resumeId, { resumeId = it }, "Full native session ID",
+          resumeId, { if (launchState.tool == cliTool) launchState = launchState.copy(resumeId = it) }, "Full native session ID",
           modifier = Modifier.fillMaxWidth(), isError = resumeIdInvalid,
         )
         Text(
@@ -300,34 +311,30 @@ fun NewSessionScreen(
           color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
         )
       }
-      if (cliTool == CliToolId.CLAUDE || cliTool == CliToolId.OPENCODE || cliTool == CliToolId.CODEX) {
+      if (cliTool in GuidedLaunchFlags.supportedTools) {
         SectionHeader("Guided launch settings")
-        TetherTextField(
-          guidedSelection.model, { guidedSelection = guidedSelection.copy(model = it) }, "Model",
-          modifier = Modifier.fillMaxWidth(), placeholder = "CLI default (leave empty)",
-        )
-        if (cliTool == CliToolId.OPENCODE) {
-          TetherTextField(
-            guidedSelection.agent, { guidedSelection = guidedSelection.copy(agent = it) }, "Agent",
-            modifier = Modifier.fillMaxWidth(), placeholder = "e.g. build",
-          )
-        }
-        if (cliTool == CliToolId.CODEX) {
-          TetherTextField(
-            guidedSelection.nativeProfile, { guidedSelection = guidedSelection.copy(nativeProfile = it) }, "Native profile",
-            modifier = Modifier.fillMaxWidth(), placeholder = "e.g. work",
-          )
-          Text(
-            "References an existing Codex profile on the remote host, not a saved Tether Go launch profile.",
-            color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
-          )
-          TetherTextField(
-            guidedSelection.reasoningEffort, { guidedSelection = guidedSelection.copy(reasoningEffort = it) }, "Reasoning effort",
-            modifier = Modifier.fillMaxWidth(), placeholder = "e.g. low, medium, high, xhigh",
-          )
-        }
         Text(
-          "Enter identifiers supported by your remote CLI; availability is not checked. Empty fields leave manual flags and native defaults unchanged. Do not enter secrets.",
+          "Starts with this CLI's saved phone-local defaults. Edits here affect only this session.",
+          color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
+        )
+        GuidedLaunchFields(cliTool, guidedSelection) {
+          if (launchState.tool == cliTool) launchState = launchState.copy(selection = it)
+        }
+        validationError?.let {
+          Text(it, color = theme.statusDead, style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = {
+          if (launchState.tool == cliTool) launchState = launchState.withoutDefaults()
+        }) {
+          Text("Use no defaults for this session")
+        }
+        TextButton(onClick = {
+          if (launchState.tool == cliTool) {
+            launchState = launchState.restoreDefaults(runCatching { launchDefaultsStore.load(cliTool) })
+          }
+        }) { Text("Restore saved defaults") }
+        Text(
+          "These actions change guided fields only. Extra arguments and the explicit resume ID stay unchanged.",
           color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
         )
       }
@@ -344,7 +351,9 @@ fun NewSessionScreen(
             Checkbox(
               checked = selectedFlags.contains(flag.flag),
               onCheckedChange = { checked ->
-                selectedFlags = if (checked) selectedFlags + flag.flag else selectedFlags - flag.flag
+                if (launchState.tool == cliTool) {
+                  selectedFlags = if (checked) selectedFlags + flag.flag else selectedFlags - flag.flag
+                }
               },
               colors = CheckboxDefaults.colors(checkedColor = theme.accent, uncheckedColor = theme.border),
             )
