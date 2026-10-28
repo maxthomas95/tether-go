@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.sonarqube.gradle.SonarExtension
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -20,6 +23,9 @@ android {
   }
 
   buildTypes {
+    debug {
+      enableUnitTestCoverage = true
+    }
     release {
       isMinifyEnabled = true
       proguardFiles(
@@ -32,6 +38,31 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+  }
+}
+
+extensions.configure<SonarExtension>("sonar") {
+  setAndroidVariant("debug")
+  properties {
+    // The scanner's AGP 9 adapter currently collects only javac destinations.
+    // AGP's built-in Kotlin writes elsewhere. Read both compiler task outputs,
+    // never AGP's private intermediate paths. CI compiles before invoking sonar.
+    val mainClasses = files(
+      tasks.named<KotlinCompile>("compileDebugKotlin").flatMap { it.destinationDirectory },
+      tasks.named<JavaCompile>("compileDebugJavaWithJavac").flatMap { it.destinationDirectory },
+    ).filter { it.isDirectory }.files
+    val testClasses = files(
+      tasks.named<KotlinCompile>("compileDebugUnitTestKotlin").flatMap { it.destinationDirectory },
+      tasks.named<JavaCompile>("compileDebugUnitTestJavaWithJavac").flatMap { it.destinationDirectory },
+    ).filter { it.isDirectory }.files
+    check(mainClasses.isNotEmpty() && testClasses.isNotEmpty()) {
+      "Compile :app:compileDebugUnitTestSources before running sonar."
+    }
+    property("sonar.java.binaries", mainClasses)
+    property("sonar.binaries", mainClasses)
+    property("sonar.java.test.binaries", testClasses)
+    // Keep source roots, Android boot classpath and dependency libraries managed
+    // by the scanner. It also adds these main binaries to test libraries.
   }
 }
 

@@ -22,7 +22,14 @@ debug and public releases.
 - [ ] Private key storage reviewed.
 - [ ] Logs checked for secret redaction.
 - [ ] Release APK built from a clean checkout.
-- [ ] Required branch checks reflect the active CI/SonarCloud jobs.
+- [ ] Required branch checks reflect the active CI/SonarCloud jobs; preserve
+  the **Gradle checks** build + applicable Sonar aggregate.
+- [ ] On the exact release PR head, inspect the coverage artifact and confirm
+  both **SonarQube scan** and the Sonar quality gate pass; scan submission alone
+  is not approval. Resolve the existing bootstrap 403 through project/token
+  access, not by weakening the gate (see [SONAR.md](SONAR.md)).
+- [ ] Confirm `versionName` is the intended release version; Sonar reads the same
+  value. Recheck the main-branch scan and overall coverage after merge.
 - [ ] GitHub Release notes written.
 
 ## Release Commands
@@ -30,7 +37,7 @@ debug and public releases.
 Current debug build checks:
 
 ```bash
-./gradlew test
+./gradlew test :app:createDebugUnitTestCoverageReport
 ./gradlew lint
 ./gradlew assembleDebug
 ```

@@ -9,7 +9,8 @@ junit = "4.13.2"
 kotlin = "2.3.21"
 lifecycle = "2.9.4"
 kotlinxCoroutines = "1.11.0"
-sonarqube = "7.3.0.8198"
+# 7.3.1 fixes AGP 9+ Java output paths (SCANGRADLE-410); see app's Kotlin override.
+sonarqube = "7.3.1.8318"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }

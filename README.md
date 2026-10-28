@@ -101,6 +101,7 @@ Android's notification permission.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Initial architecture direction and open decisions |
 | [docs/SSH_PTY_SPIKE_TESTING.md](docs/SSH_PTY_SPIKE_TESTING.md) | Manual validation notes for the SSH PTY spike |
 | [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | Release mechanics to fill in before first APK |
+| [docs/SONAR.md](docs/SONAR.md) | Android coverage, CI gates, and SonarQube Cloud setup |
 | [AGENTS.md](AGENTS.md) | Repository rules for coding agents and contributors |
 
 ## Development
@@ -116,13 +117,17 @@ The initial scaffold uses Kotlin + Jetpack Compose with:
 Use the Gradle wrapper for local development:
 
 ```bash
-./gradlew test
+./gradlew test :app:createDebugUnitTestCoverageReport
 ./gradlew lint
 ./gradlew assembleDebug
 ```
 
-The GitHub Actions workflow runs the same checks on pull requests and pushes to
-`main`, then runs CI-based SonarQube Cloud analysis with the Gradle scanner.
+The GitHub Actions workflow runs these checks on pull requests, pushes to
+`main`, and manual dispatch. A separate Gradle SonarQube Cloud job imports the
+coverage report and waits for the quality gate. The stable **Gradle checks**
+context requires both build and applicable Sonar success; fork/Dependabot PRs
+intentionally skip only the authenticated scan. See [docs/SONAR.md](docs/SONAR.md)
+for reports, coverage scope, and token/bootstrap troubleshooting.
 Release signing is not configured yet, so release APK commands are still out of
 scope.
 
