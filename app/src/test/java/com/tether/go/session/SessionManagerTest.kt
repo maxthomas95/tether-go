@@ -1,11 +1,16 @@
 package com.tether.go.session
 
+import androidx.compose.ui.graphics.Color
+import com.tether.go.cli.LaunchCommandBuilder
 import com.tether.go.cli.CliToolId
+import com.tether.go.ssh.SshAuthMaterial
+import org.connectbot.terminal.TerminalDimensions
 import com.tether.go.ssh.PreferenceBackedSshHostStore
 import com.tether.go.ssh.PreferenceBackedSshPrivateKeyStore
 import com.tether.go.ssh.StringPreferenceStore
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
@@ -47,7 +52,7 @@ class SessionManagerTest {
 
   @Test
   fun restoredMuteCanBeUnmutedAndRemainsUnmutedAfterAnotherManagerLoads() = runTest {
-    val session = sampleSession("first").copy(notificationsMuted = true)
+    val session = sampleSession("first").copy(notificationsMuted = true, resumeToolSessionId = "native-id")
     val store = RecordingSessionStore(listOf(session))
     val hostStore = PreferenceBackedSshHostStore(MapStore())
     val privateKeyStore = PreferenceBackedSshPrivateKeyStore(MapStore())
@@ -70,7 +75,7 @@ class SessionManagerTest {
 
   @Test
   fun repeatedMuteClearsAnAlertWithoutRewritingMetadataAndUnknownIdsAreIgnored() = runTest {
-    val session = sampleSession("first").copy(notificationsMuted = true)
+    val session = sampleSession("first").copy(notificationsMuted = true, resumeToolSessionId = "native-id")
     val store = RecordingSessionStore(listOf(session))
     val manager = SessionManager(
       backgroundScope,
@@ -117,7 +122,7 @@ class SessionManagerTest {
 
   @Test
   fun renamingPreservesTheSessionsPersistedMutePreference() = runTest {
-    val session = sampleSession("first").copy(notificationsMuted = true)
+    val session = sampleSession("first").copy(notificationsMuted = true, resumeToolSessionId = "native-id")
     val store = RecordingSessionStore(listOf(session))
     val manager = SessionManager(
       backgroundScope,
@@ -131,7 +136,84 @@ class SessionManagerTest {
     assertTrue(manager.isMuted(session.id))
     assertTrue(store.loadSessions().single().notificationsMuted)
     assertEquals("Renamed", manager.sessions.value.single().session.label)
+    assertEquals("native-id", manager.sessionMetadata(session.id)?.resumeToolSessionId)
+    assertEquals("native-id", store.loadSessions().single().resumeToolSessionId)
   }
+
+  @Test
+  fun invalidCreationDoesNotPersistAllocateTerminalOrOpenTransport() = runTest {
+    val store = RecordingSessionStore(emptyList())
+    val manager = SessionManager(backgroundScope, PreferenceBackedSshHostStore(MapStore()),
+      PreferenceBackedSshPrivateKeyStore(MapStore()), store)
+    val sample = sampleSession("draft")
+    val draft = SessionDraft(sample.label, sample.hostId, sample.host, sample.port, sample.username,
+      sample.cliTool, sample.customBinary, sample.workingDir, sample.flags, sample.env, sample.privateKeyId,
+      resumeToolSessionId = "")
+    listOf(
+      draft,
+      draft.copy(resumeToolSessionId = "bad\nvalue"),
+      draft.copy(resumeToolSessionId = "id", flags = listOf("--continue")),
+      draft.copy(resumeToolSessionId = "id", flags = listOf("$(whoami)")),
+      draft.copy(resumeToolSessionId = "id", cliTool = CliToolId.CUSTOM),
+      draft.copy(resumeToolSessionId = null, env = mapOf("BAD NAME" to "value")),
+    ).forEach { invalid ->
+      val result = manager.createSession(invalid, SshAuthMaterial.Password("unused"), appearance(), size)
+      assertTrue(result.isFailure)
+      assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+      assertEquals(emptyList<SessionUiModel>(), manager.sessions.value)
+      assertEquals(0, store.upserts)
+      assertEquals(0, manager.connectedCount())
+    }
+  }
+
+  @Test
+  fun invalidPersistedReconnectPublishesErrorWithoutOpeningTransportOrChangingIntent() = runTest {
+    listOf(
+      sampleSession("blank").copy(resumeToolSessionId = " "),
+      sampleSession("custom").copy(cliTool = CliToolId.CUSTOM, resumeToolSessionId = "id"),
+      sampleSession("selector").copy(resumeToolSessionId = "id", flags = listOf("'--resume' old")),
+      sampleSession("shell").copy(resumeToolSessionId = "id", flags = listOf("--model $" + "MODEL")),
+      sampleSession("env").copy(env = mapOf("BAD NAME" to "value")),
+    ).forEach { session ->
+      val store = RecordingSessionStore(listOf(session))
+      val manager = SessionManager(backgroundScope, PreferenceBackedSshHostStore(MapStore()),
+        PreferenceBackedSshPrivateKeyStore(MapStore()), store)
+      assertFalse(manager.reconnect(session.id, appearance(), size))
+      // Password reconnect must follow the same preflight, not bypass it.
+      manager.connectWithPassword(session.id, "unused", appearance(), size)
+      testScheduler.runCurrent()
+      assertEquals(SessionStatus.Error, manager.sessions.value.single().status)
+      assertTrue(manager.sshStateFor(session.id).value.error.orEmpty().startsWith("Cannot launch session:"))
+      assertNull(manager.terminalFor(session.id))
+      assertEquals(0, manager.connectedCount())
+      assertEquals(0, store.upserts)
+      assertEquals(session, manager.sessionMetadata(session.id))
+      assertEquals(session, store.loadSessions().single())
+    }
+  }
+
+  @Test
+  fun restoredResumeRetainsExplicitIdThroughReconnectAttemptRenameAndMute() = runTest {
+    CliToolId.entries.filter { it != CliToolId.CUSTOM }.forEach { tool ->
+      val session = sampleSession(tool.id).copy(cliTool = tool, resumeToolSessionId = "native-id")
+      val store = RecordingSessionStore(listOf(session))
+      val manager = SessionManager(backgroundScope, PreferenceBackedSshHostStore(MapStore()),
+        PreferenceBackedSshPrivateKeyStore(MapStore()), store, clock = { 300L })
+      // No stored credential in this fixture: preflight succeeds, auth stops it.
+      assertFalse(manager.reconnect(session.id, appearance(), size))
+      assertNull(manager.sshStateFor(session.id).value.error)
+      manager.rename(session.id, "Renamed")
+      manager.setMuted(session.id, true)
+      val restored = store.loadSessions().single()
+      assertEquals(session.copy(label = "Renamed", updatedAtMillis = 300, notificationsMuted = true), restored)
+      val command = LaunchCommandBuilder.build(restored.launchProfile())
+      assertTrue(command.contains("'native-id'"))
+      assertFalse(command.contains("--last") || command.contains("--continue") || command.contains("--session-id"))
+    }
+  }
+
+  private fun appearance() = TerminalAppearance(Color.White, Color.Black, IntArray(16))
+  private val size = TerminalDimensions(rows = 24, columns = 80)
 
   private fun sampleSession(id: String) = Session(
     id = id,

@@ -61,7 +61,8 @@ class SharedPreferencesSessionStore(
 // ── Encoding ──────────────────────────────────────────────────────────────
 
 private const val LEGACY_FIELD_COUNT = 14
-private const val FIELD_COUNT = 15
+private const val MUTE_FIELD_COUNT = 15
+private const val FIELD_COUNT = 16
 private const val LIST_SEPARATOR = "\n"
 private const val KV_SEPARATOR = "="
 
@@ -83,6 +84,7 @@ private fun List<Session>.encodeSessions(): String =
       s.createdAtMillis.toString(),
       s.updatedAtMillis.toString(),
       s.notificationsMuted.toString(),
+      s.resumeToolSessionId.orEmpty(),
     )
   }
 
@@ -90,7 +92,7 @@ private fun String?.decodeSessions(): List<Session> {
   if (isNullOrBlank()) return emptyList()
   return lineSequence().mapNotNull { line ->
     val fields = line.split('\t')
-    if (fields.size != LEGACY_FIELD_COUNT && fields.size != FIELD_COUNT) return@mapNotNull null
+    if (fields.size !in LEGACY_FIELD_COUNT..FIELD_COUNT) return@mapNotNull null
     val decoded = fields.map { encoded ->
       runCatching {
         String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8)
@@ -121,6 +123,9 @@ private fun String?.decodeSessions(): List<Session> {
       createdAtMillis = createdAt,
       updatedAtMillis = updatedAt,
       notificationsMuted = notificationsMuted,
+      // Preserve nonempty invalid values for launch validation, never turn a
+      // damaged explicit-resume configuration into a default/fresh launch.
+      resumeToolSessionId = if (decoded.size > MUTE_FIELD_COUNT) decoded[15].takeIf { it.isNotEmpty() } else null,
     )
   }.toList()
 }

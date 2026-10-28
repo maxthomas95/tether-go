@@ -46,10 +46,10 @@ migration remain follow-up work before richer saved profiles.
 The initial product direction is intentionally small:
 
 - Direct SSH to a reachable VM or remote host.
-- Open a real PTY and run Claude, Codex, OpenCode, or a custom CLI.
+- Open a real PTY and run Claude, Codex, Copilot, OpenCode, or a custom CLI.
 - Preserve the dumb-pipe terminal model: raw PTY bytes into a terminal emulator, input back to stdin unchanged.
 - Phone-owned sessions only for v0.1.
-- Manual CLI-native resume when the user wants to continue an older conversation.
+- CLI-native resume by an explicit ID, or manual CLI flags, when continuing an older conversation.
 - No Coder, Vault, desktop API, agent, public relay, or local Android PTY in v0.1.
 
 ## Core Principle
@@ -61,11 +61,43 @@ The initial product direction is intentionally small:
 - SSH host management with host key verification.
 - Private-key import and Android secure storage.
 - Full-screen terminal view with phone-shaped input controls.
-- CLI tool selection for Claude, Codex, OpenCode, and custom commands.
+- CLI tool selection for Claude, Codex, Copilot, OpenCode, and custom commands.
 - Working directory, env vars, launch flags, and session labels.
 - Phone-owned notifications for sessions currently observed by the app.
 - Push-to-talk voice input that types final transcripts into the PTY.
 - Tether visual identity and theme continuity where practical.
+
+## Resuming by Native ID
+
+In **New session**, keep **Default / manual** for the existing launch behavior,
+including any resume flags you enter yourself. It does not promise a new
+conversation. Choose **Resume by ID** for Claude, Codex, Copilot, or OpenCode and
+enter the full native session ID from that CLI on the selected remote host.
+Custom commands support Default / manual only. Switching CLI clears the guided
+mode and ID; retained Extra arguments are validated when guided mode is enabled.
+
+This is a CLI-native command helper, not remote history discovery, a transcript
+picker, or desktop synchronization. Tether Go does not verify ID existence or
+uniqueness (Copilot itself may also accept names/prefixes). The native CLI decides
+whether the supplied ID can resume; Tether Go never retries a missing ID as a
+fresh or latest conversation. Reconnect uses the same saved explicit ID.
+
+Guided resume preserves desktop argument order: Claude appends `--resume ID` to
+manual arguments; Codex prepends `resume ID`; Copilot prepends `--resume ID`;
+OpenCode prepends `--session ID`. It never substitutes Claude or Copilot
+`--session-id`, which can create a session rather than resume it.
+
+IDs must be 1–256 characters, without whitespace/control characters or a leading
+`-`. Guided arguments accept literal POSIX quotes and escapes, but reject shell
+expansions, operators, and unquoted globs. Conflicting resume/continue/fork or
+worktree selectors and ambiguous option groups show an inline error and disable
+Start; remove the conflict or switch to Default / manual. Nothing is silently
+removed. Invalid saved launch configurations show an error before reconnecting.
+Rows marked **Resume by ID configured** describe configuration, not live history.
+
+Environment assignments use `env` so quoted values reach the remote CLI as
+values, not shell commands. The existing warning about unencrypted launch fields
+still applies; do not put secrets in environment, argument, or session-ID fields.
 
 ## Finding Sessions and Controlling Alerts
 

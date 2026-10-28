@@ -8,6 +8,16 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Added
 
+- Explicit **Resume by ID** command helper for Claude, Codex, Copilot, and
+  OpenCode, with safe native argument ordering/quoting, inline ID/argument
+  validation, and a saved-configuration indicator. **Default / manual** retains
+  raw flags and shell behavior; Custom has no guided resume mode. No remote
+  history discovery, latest-session lookup, or desktop synchronization is added.
+- Saved explicit resume IDs survive restart, rename, mute, and reconnect in a
+  sixteenth metadata field. Fourteen-/fifteen-field records retain their prior
+  mute/default-launch behavior. Invalid launch intent fails before save/connect,
+  and invalid restored configurations surface an error rather than launching.
+
 - Explicit Android 13+ notification permission action in Settings, with an
   Android settings fallback after denial/dismissal and refreshed app/channel
   access status on return. The app alert preference remains independent.
@@ -56,6 +66,16 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
   Waiting, and Idle as live; Idle sessions correctly offer Disconnect.
 - `MainActivity` hosts the product navigation (`TetherGoApp`) instead of the
   terminal renderer spike screen.
+
+### Fixed
+
+- Launch environment assignments now use `env` before quoted `NAME=value`
+  arguments instead of attempting to execute the assignment as a command.
+  Empty-environment launches are unchanged; real local POSIX-shell tests cover
+  environment values, working directories, and native argument boundaries.
+- Invalid launch previews display validation errors and disable Start rather
+  than throwing during form rendering. Guided commands are prevalidated before
+  SSH connection, not rebuilt unsafely in the connected-state coroutine.
 
 ### Removed
 

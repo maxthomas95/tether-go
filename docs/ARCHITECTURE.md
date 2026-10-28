@@ -76,7 +76,7 @@ SSH transport
         v
 Remote host / VM
     - shell
-    - Claude / Codex / OpenCode / custom CLI
+    - Claude / Codex / Copilot / OpenCode / custom CLI
     - CLI-native transcript and resume metadata
 ```
 
@@ -107,8 +107,14 @@ TetherGoApp (root)
   and expanded layouts and never drives session selection or transport state.
 - **Launch command** is assembled by `LaunchCommandBuilder` from the
   `cli` package (CLI registry + POSIX `ShellQuote`), ported from desktop Tether
-  shared code. It is only string assembly — the same command a user would type
-  — and is written to stdin, never wrapped or parsed, preserving the dumb pipe.
+  shared code. Default / manual preserves raw shell flags. Explicit native
+  resume-by-ID uses a pure literal-only POSIX argument reader, conservative
+  selector-conflict validation, and single-argument shell quoting. This parses
+  launch input only, never CLI output. Validated commands are cached before
+  saving/connecting and written once to stdin; invalid restored configurations
+  publish an existing session error without allocating a terminal/opening SSH.
+  Nonempty environment assignments are prefixed with `env`; zero-env commands
+  are unchanged.
 - **Theme** tokens (`TetherTheme`) are ported 1:1 from the desktop renderer
   theme registry and provided via `LocalTetherTheme`; the same tokens drive the
   Material3 color scheme and the terminal ANSI palette.
@@ -117,13 +123,41 @@ TetherGoApp (root)
   composition, so intentionally closing the app tears sessions down.
 - **Persistence**: session metadata is stored with the same tab/base64 encoding
   as the host store, with only a `privateKeyId` reference to secure key storage.
-  A fifteenth field stores `notificationsMuted`; legacy fourteen-field records
-  load as unmuted. Preference-only mute updates preserve activity timestamps and
+  A fifteenth field stores `notificationsMuted`; a sixteenth optional field
+  stores `resumeToolSessionId`. Fourteen-field records load unmuted with no
+  guided resume ID; fifteen-field records retain mute with no ID. Nonempty
+  invalid IDs remain intact so launch validation fails closed, never silently
+  changing explicit resume into default/fresh launch. Preference-only mute updates preserve activity timestamps and
   equal-timestamp ordering. The manager submits changes to storage before
   publishing them (SharedPreferences flushes asynchronously),
   cancels an existing alert when muted, and applies the stored setting alongside
   the global, active-terminal, and connection notification gates. Launch env
   values remain existing session metadata and are excluded from discovery.
+
+## Explicit Native Resume Boundary
+
+New Session offers **Default / manual** and **Resume by ID** for Claude, Codex,
+Copilot, and OpenCode. Custom cannot enable guided mode. Tool changes clear the
+mode/ID to prevent cross-tool reuse, while retained Extra arguments are checked
+again when guided mode is selected. The ID is bounded to 256 characters, cannot
+contain whitespace/control characters or start with `-`, and is quoted as one
+shell argument. It is not verified against the remote CLI's history.
+
+Native argv mirrors desktop `buildCliArgsForTool`: Claude manual arguments then
+`--resume ID`; Codex `resume ID` then manual arguments; Copilot `--resume ID`
+then manual arguments; OpenCode `--session ID` then manual arguments. The
+Copilot helper is explicit-command support, not a claim of desktop remote
+history-discovery parity. No `--session-id` substitution, missing-ID retry,
+latest/last lookup, transcript parsing, remote history probing, or desktop API
+is introduced. Reconnect preserves the explicit ID; the CLI alone resolves it.
+
+Managed mode rejects conflicting native selectors, end-of-options markers,
+ambiguous short groups, incomplete known value options, and nonliteral shell
+syntax. Known model/agent values are not treated as selectors. Literal quotes
+and escapes are accepted and re-quoted safely. Default / manual is deliberately
+not tokenized or restricted by these guided-mode checks. Named profiles,
+model/agent selector UI, secure launch-value storage, history capture/pickers,
+and shared desktop sessions remain separate work.
 
 ## Terminal Renderer Decision
 

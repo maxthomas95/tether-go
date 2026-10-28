@@ -68,6 +68,7 @@ data class SessionDraft(
   val flags: List<String>,
   val env: Map<String, String>,
   val privateKeyId: String?,
+  val resumeToolSessionId: String? = null,
 )
 
 /**
@@ -90,6 +91,9 @@ class SessionManager(
     val sshSession: SshTerminalSession,
   ) {
     var terminal: TerminalEmulator? = null
+    val state = MutableStateFlow(SshTerminalState())
+    var launchCommand: String? = null
+    var launchError: String? = null
     var launchSent: Boolean = false
     var collectJob: Job? = null
   }
@@ -166,7 +170,7 @@ class SessionManager(
   }
 
   fun sshStateFor(sessionId: String): StateFlow<SshTerminalState> =
-    runtimes[sessionId]?.sshSession?.state ?: emptySshState
+    runtimes[sessionId]?.state ?: emptySshState
 
   fun terminalFor(sessionId: String): TerminalEmulator? = runtimes[sessionId]?.terminal
 
@@ -178,7 +182,7 @@ class SessionManager(
     auth: SshAuthMaterial,
     appearance: TerminalAppearance,
     terminalSize: TerminalDimensions,
-  ): String {
+  ): Result<String> {
     val now = clock()
     val session = Session(
       id = UUID.randomUUID().toString(),
@@ -193,14 +197,21 @@ class SessionManager(
       flags = draft.flags,
       env = draft.env,
       privateKeyId = draft.privateKeyId,
+      resumeToolSessionId = draft.resumeToolSessionId,
       createdAtMillis = now,
       updatedAtMillis = now,
     )
-    val runtime = addRuntime(session)
+    // Reject invalid intent before persistence, terminal allocation, or SSH.
+    val command = try {
+      LaunchCommandBuilder.build(session.launchProfile())
+    } catch (error: IllegalArgumentException) {
+      return Result.failure(error)
+    }
     store.upsertSession(session)
-    connectRuntime(runtime, auth, appearance, terminalSize)
+    val runtime = addRuntime(session)
+    connectRuntime(runtime, auth, appearance, terminalSize, command)
     recompute()
-    return session.id
+    return Result.success(session.id)
   }
 
   /** Reconnect an existing session using stored (private-key) auth if available. */
@@ -210,8 +221,9 @@ class SessionManager(
     terminalSize: TerminalDimensions,
   ): Boolean {
     val runtime = runtimes[sessionId] ?: return false
+    val command = prepareLaunch(runtime) ?: return false
     val auth = resolveStoredAuth(runtime.session) ?: return false
-    connectRuntime(runtime, auth, appearance, terminalSize)
+    connectRuntime(runtime, auth, appearance, terminalSize, command)
     return true
   }
 
@@ -226,7 +238,8 @@ class SessionManager(
     terminalSize: TerminalDimensions,
   ) {
     val runtime = runtimes[sessionId] ?: return
-    connectRuntime(runtime, SshAuthMaterial.Password(password), appearance, terminalSize)
+    val command = prepareLaunch(runtime) ?: return
+    connectRuntime(runtime, SshAuthMaterial.Password(password), appearance, terminalSize, command)
   }
 
   fun disconnect(sessionId: String) {
@@ -269,11 +282,14 @@ class SessionManager(
     detector.register(session.id)
     runtime.collectJob = scope.launch {
       runtime.sshSession.state.collect { state ->
+        // A pending initial transport emission must not erase a launch error.
+        if (runtime.launchError != null) return@collect
         states[session.id] = state
+        runtime.state.value = state
         if (state.phase == SshTerminalPhase.Connected && !runtime.launchSent) {
           runtime.launchSent = true
-          val command = LaunchCommandBuilder.build(runtime.session.launchProfile())
-          if (command.isNotBlank()) {
+          val command = runtime.launchCommand
+          if (!command.isNullOrBlank()) {
             runtime.sshSession.sendInput((command + "\n").toByteArray(Charsets.UTF_8))
           }
         }
@@ -289,12 +305,28 @@ class SessionManager(
     return runtime
   }
 
+  private fun prepareLaunch(runtime: Runtime): String? = try {
+    LaunchCommandBuilder.build(runtime.session.launchProfile())
+  } catch (error: IllegalArgumentException) {
+    val message = "Cannot launch session: ${error.message}"
+    runtime.launchError = message
+    runtime.launchCommand = null
+    val state = SshTerminalState(message = message, error = message)
+    states[runtime.session.id] = state
+    runtime.state.value = state
+    recompute()
+    null
+  }
+
   private fun connectRuntime(
     runtime: Runtime,
     auth: SshAuthMaterial,
     appearance: TerminalAppearance,
     terminalSize: TerminalDimensions,
+    command: String,
   ) {
+    runtime.launchCommand = command
+    runtime.launchError = null
     val terminal = ensureTerminal(runtime, appearance)
     runtime.launchSent = false
     detector.reset(runtime.session.id)

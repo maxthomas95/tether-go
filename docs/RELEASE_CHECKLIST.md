@@ -98,3 +98,32 @@ Validate on a phone and an expanded tablet/foldable layout:
   leave a stuck action or change the in-app session-alert switch.
 - [ ] The foreground service continues its required ongoing notification
   independently of the in-app session-alert preference.
+
+### Explicit Native Resume and Launch Validation
+
+These device/real-host checks remain outstanding; JVM tests use fake local CLIs,
+not real agent accounts. Validate on phone and expanded/foldable layouts:
+
+- [ ] Default / manual keeps existing raw flags (including manual resume) and
+  is never labeled New. Custom cannot enable guided resume.
+- [ ] Resume a known full native ID on the selected host with Claude, Codex,
+  Copilot, and OpenCode; verify native CLI results and raw terminal behavior.
+  Do not infer Copilot remote history discovery from its explicit command helper.
+- [ ] Blank, whitespace/control, overlong, or option-like IDs show an inline
+  error and disable Start. Correcting input restores the preview and Start.
+- [ ] Conflicting split/equals/attached/grouped/quoted selectors, incomplete
+  known options, and shell expansions/operators/globs block guided launch;
+  safe quoted values work. Default / manual remains the escape hatch.
+- [ ] Switching CLI clears guided mode and ID, does not reuse another CLI's ID,
+  and revalidates retained Extra arguments when guided mode is selected again.
+- [ ] Cancel/back/reopen, repeated taps, and fold/unfold never start a hidden
+  launch or silently change resume intent. No latest/last choice is offered.
+- [ ] Unknown/missing IDs are handled by the native CLI without any app retry
+  as fresh/latest or a Claude/Copilot `--session-id` substitution.
+- [ ] Restart, rename, mute, and reconnect preserve the configured explicit ID;
+  upgrade fourteen-/fifteen-field records without losing flags/env/timestamps.
+- [ ] Invalid saved guided configuration fails before SSH, with a readable
+  reconnect error rather than a crash or fresh launch.
+- [ ] Valid env values with spaces, quotes, dollars, and semicolons arrive
+  unchanged; invalid names show an error instead of crashing the preview.
+  Do not use secrets: launch fields are not encrypted.

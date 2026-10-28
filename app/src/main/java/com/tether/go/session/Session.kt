@@ -54,6 +54,7 @@ data class Session(
   val createdAtMillis: Long,
   val updatedAtMillis: Long,
   val notificationsMuted: Boolean = false,
+  val resumeToolSessionId: String? = null,
 ) {
   val endpointLabel: String get() = "$username@$host:$port"
 
@@ -63,5 +64,6 @@ data class Session(
     workingDir = workingDir,
     flags = flags,
     env = env,
+    resumeToolSessionId = resumeToolSessionId,
   )
 }

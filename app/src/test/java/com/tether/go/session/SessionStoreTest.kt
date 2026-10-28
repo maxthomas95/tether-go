@@ -4,6 +4,7 @@ import com.tether.go.cli.CliToolId
 import com.tether.go.ssh.StringPreferenceStore
 import java.util.Base64
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,7 +78,7 @@ class SessionStoreTest {
     assertEquals(session, restored)
     assertFalse(restored.notificationsMuted)
     store.upsertSession(restored.copy(notificationsMuted = true))
-    assertEquals(15, backing.getValue("session_records_v1").split('\t').size)
+    assertEquals(16, backing.getValue("session_records_v1").split('\t').size)
     assertEquals(session.copy(notificationsMuted = true), store.loadSessions().single())
   }
 
@@ -89,10 +90,47 @@ class SessionStoreTest {
     val validRecord = backing.getValue("session_records_v1")
     val invalidBoolean = Base64.getUrlEncoder().withoutPadding()
       .encodeToString("invalid".toByteArray(Charsets.UTF_8))
-    backing["session_records_v1"] = validRecord.substringBeforeLast('\t') +
-      "\t" + invalidBoolean + "\n" + validRecord
+    val invalidFields = validRecord.split('\t').toMutableList().also { it[14] = invalidBoolean }
+    backing["session_records_v1"] = invalidFields.joinToString("\t") + "\n" + validRecord
 
     assertEquals(listOf(sampleSession()), store.loadSessions())
+  }
+
+  @Test
+  fun loadsFifteenFieldRecordsWithStoredMuteAndNoResumeId() {
+    val backing = mutableMapOf<String, String>()
+    val store = PreferenceBackedSessionStore(MapStore(backing))
+    val session = sampleSession().copy(notificationsMuted = true)
+    store.upsertSession(session)
+    backing["session_records_v1"] = backing.getValue("session_records_v1").split('\t').take(15).joinToString("\t")
+    assertEquals(session, store.loadSessions().single())
+    assertNull(store.loadSessions().single().resumeToolSessionId)
+    store.upsertSession(store.loadSessions().single().copy(label = "Renamed"))
+    assertEquals(16, backing.getValue("session_records_v1").split('\t').size)
+    assertEquals(session.copy(label = "Renamed"), store.loadSessions().single())
+  }
+
+  @Test
+  fun sixteenFieldsPreserveNativeIdFlagsEnvironmentMuteAndTimestamps() {
+    val backing = mutableMapOf<String, String>()
+    val store = PreferenceBackedSessionStore(MapStore(backing))
+    val session = sampleSession().copy(resumeToolSessionId = "native-'id", notificationsMuted = true)
+    store.upsertSession(session)
+    assertEquals(16, backing.getValue("session_records_v1").split('\t').size)
+    assertEquals(session, store.loadSessions().single())
+    assertEquals("native-'id", store.loadSessions().single().launchProfile().resumeToolSessionId)
+    store.upsertSession(session.copy(label = "Renamed", notificationsMuted = false))
+    assertEquals(session.copy(label = "Renamed", notificationsMuted = false), store.loadSessions().single())
+  }
+
+  @Test
+  fun nonemptyInvalidIdsSurviveStorageSoLaunchFailsClosed() {
+    listOf(" ", "bad\nvalue", "bad\u0000value", "-id").forEach { id ->
+      val store = PreferenceBackedSessionStore(MapStore())
+      val session = sampleSession().copy(resumeToolSessionId = id)
+      store.upsertSession(session)
+      assertEquals(session, store.loadSessions().single())
+    }
   }
 
   @Test

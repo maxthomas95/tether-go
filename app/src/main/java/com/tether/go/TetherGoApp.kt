@@ -320,8 +320,10 @@ private fun ScreenContent(
       onCancel = nav.back,
       onStart = { draft, auth ->
         ensureForeground()
-        val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
-        nav.onSessionCreated(id)
+        manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE).fold(
+          onSuccess = { id -> nav.onSessionCreated(id); null },
+          onFailure = { error -> error.message ?: "Session could not be launched" },
+        )
       },
     )
 

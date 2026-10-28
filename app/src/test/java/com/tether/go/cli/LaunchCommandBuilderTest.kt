@@ -14,7 +14,7 @@ class LaunchCommandBuilderTest {
         env = mapOf("FOO" to "bar"),
       ),
     )
-    assertEquals("cd '/repo/tether' && 'FOO=bar' claude --verbose", command)
+    assertEquals("cd '/repo/tether' && env 'FOO=bar' claude --verbose", command)
   }
 
   @Test

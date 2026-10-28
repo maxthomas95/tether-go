@@ -67,7 +67,7 @@ fun NewSessionScreen(
   hostStore: SshHostStore,
   privateKeyStore: SshPrivateKeyStore,
   onCancel: () -> Unit,
-  onStart: (SessionDraft, SshAuthMaterial) -> Unit,
+  onStart: (SessionDraft, SshAuthMaterial) -> String?,
 ) {
   val theme = LocalTetherTheme.current
 
@@ -85,6 +85,8 @@ fun NewSessionScreen(
   var selectedKeyId by remember { mutableStateOf<String?>(null) }
 
   var cliTool by remember { mutableStateOf(CliToolId.CLAUDE) }
+  var guidedResume by remember { mutableStateOf(false) }
+  var resumeId by remember { mutableStateOf("") }
   var customBinary by remember { mutableStateOf("") }
   var workingDir by remember { mutableStateOf("") }
   var selectedFlags by remember { mutableStateOf(setOf<String>()) }
@@ -95,19 +97,26 @@ fun NewSessionScreen(
   var showImport by remember { mutableStateOf(false) }
   var importError by remember { mutableStateOf<String?>(null) }
   var keyError by remember { mutableStateOf<String?>(null) }
+  var starting by remember { mutableStateOf(false) }
 
   val portValid = parseSshPort(port) != null
-  val flags = selectedFlags.toList() + extraArgs.split(" ").map { it.trim() }.filter { it.isNotEmpty() }
+  // Keep Extra arguments intact: guided mode reads POSIX literal words, while
+  // Default / manual keeps its existing raw shell semantics.
+  val flags = selectedFlags.toList() + listOf(extraArgs).filter { it.isNotBlank() }
   val env = envRows.filter { it.first.isNotBlank() }.associate { it.first.trim() to it.second }
-  val launchPreview = LaunchCommandBuilder.build(
-    LaunchProfile(cliTool, customBinary.takeIf { it.isNotBlank() }, workingDir.takeIf { it.isNotBlank() }, flags, env),
+  val profile = LaunchProfile(
+    cliTool, customBinary.takeIf { it.isNotBlank() }, workingDir.takeIf { it.isNotBlank() }, flags, env,
+    resumeToolSessionId = if (guidedResume) resumeId else null,
   )
+  val preview = runCatching { LaunchCommandBuilder.build(profile) }
+  val validationError = preview.exceptionOrNull()?.message
+  var startError by remember(profile) { mutableStateOf<String?>(null) }
   val authReady = when (authMode) {
     AuthMode.Password -> password.isNotEmpty()
     AuthMode.PrivateKey -> selectedKeyId != null
   }
   val canStart = host.isNotBlank() && username.isNotBlank() && portValid && authReady &&
-    (cliTool != CliToolId.CUSTOM || customBinary.isNotBlank())
+    (cliTool != CliToolId.CUSTOM || customBinary.isNotBlank()) && preview.isSuccess && !starting
 
   fun applyHost(record: SshHostRecord) {
     selectedHostId = record.id
@@ -142,38 +151,48 @@ fun NewSessionScreen(
   }
 
   fun start() {
-    val parsedPort = parseSshPort(port) ?: return
-    val auth = when (authMode) {
-      AuthMode.Password -> SshAuthMaterial.Password(password)
-      AuthMode.PrivateKey -> {
-        val keyId = selectedKeyId ?: return
-        val material = runCatching { privateKeyStore.loadPrivateKeyMaterial(keyId) }.getOrElse {
-          keyError = "Private key storage could not be read"
-          return
-        } ?: run {
-          keyError = "Selected private key is unavailable"
-          return
+    // Read the current state directly, not only the last composed canStart.
+    if (starting || !canStart) return
+    starting = true
+    var launched = false
+    try {
+      val parsedPort = parseSshPort(port) ?: return
+      val auth = when (authMode) {
+        AuthMode.Password -> SshAuthMaterial.Password(password)
+        AuthMode.PrivateKey -> {
+          val keyId = selectedKeyId ?: return
+          val material = runCatching { privateKeyStore.loadPrivateKeyMaterial(keyId) }.getOrElse {
+            keyError = "Private key storage could not be read"
+            return
+          } ?: run {
+            keyError = "Selected private key is unavailable"
+            return
+          }
+          SshAuthMaterial.PrivateKey(material.privateKeyData, material.passphrase)
         }
-        SshAuthMaterial.PrivateKey(material.privateKeyData, material.passphrase)
       }
+      val hostId = ensureHostSaved(parsedPort)
+      startError = onStart(
+        SessionDraft(
+          label = label,
+          hostId = hostId,
+          host = host.trim(),
+          port = parsedPort,
+          username = username.trim(),
+          cliTool = cliTool,
+          customBinary = customBinary.takeIf { it.isNotBlank() },
+          workingDir = workingDir.takeIf { it.isNotBlank() },
+          flags = flags,
+          env = env,
+          privateKeyId = if (authMode == AuthMode.PrivateKey) selectedKeyId else null,
+          resumeToolSessionId = profile.resumeToolSessionId,
+        ),
+        auth,
+      )
+      launched = startError == null
+    } finally {
+      if (!launched) starting = false
     }
-    val hostId = ensureHostSaved(parsedPort)
-    onStart(
-      SessionDraft(
-        label = label,
-        hostId = hostId,
-        host = host.trim(),
-        port = parsedPort,
-        username = username.trim(),
-        cliTool = cliTool,
-        customBinary = customBinary.takeIf { it.isNotBlank() },
-        workingDir = workingDir.takeIf { it.isNotBlank() },
-        flags = flags,
-        env = env,
-        privateKeyId = if (authMode == AuthMode.PrivateKey) selectedKeyId else null,
-      ),
-      auth,
-    )
   }
 
   Column(
@@ -242,13 +261,35 @@ fun NewSessionScreen(
       ) {
         CliToolRegistry.all.forEach { def ->
           SelectableChip(def.displayName, def.id == cliTool, {
-            cliTool = def.id
-            selectedFlags = emptySet()
+            if (cliTool != def.id) {
+              cliTool = def.id
+              selectedFlags = emptySet()
+              guidedResume = false
+              resumeId = ""
+            }
           })
         }
       }
       if (cliTool == CliToolId.CUSTOM) {
         TetherTextField(customBinary, { customBinary = it }, "Custom binary", modifier = Modifier.fillMaxWidth(), placeholder = "e.g. my-agent")
+      }
+      SectionHeader("Session launch")
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SelectableChip("Default / manual", !guidedResume, { guidedResume = false })
+        SelectableChip(
+          "Resume by ID", guidedResume, { guidedResume = true },
+          enabled = CliToolRegistry.byId(cliTool).supportsSessionResume,
+        )
+      }
+      if (guidedResume) {
+        TetherTextField(
+          resumeId, { resumeId = it }, "Full native session ID",
+          modifier = Modifier.fillMaxWidth(), isError = validationError != null,
+        )
+        Text(
+          "Uses this CLI's native resume command on the selected host. Tether Go does not look up history or verify that the ID exists.",
+          color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
+        )
       }
       TetherTextField(workingDir, { workingDir = it }, "Working directory", modifier = Modifier.fillMaxWidth(), placeholder = "~ or /repo/project")
 
@@ -307,7 +348,13 @@ fun NewSessionScreen(
           .background(theme.terminalBg, RoundedCornerShape(8.dp))
           .padding(12.dp),
       ) {
-        Text(launchPreview, color = theme.terminalFg, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+        Text(
+          preview.getOrNull() ?: "Fix the launch configuration to see a preview.",
+          color = theme.terminalFg, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
+        )
+      }
+      (validationError ?: startError)?.let { error ->
+        Text(error, color = theme.statusDead, style = MaterialTheme.typography.bodySmall)
       }
       Spacer(Modifier.height(12.dp))
     }

@@ -295,6 +295,9 @@ private fun SessionCard(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
+      if (session.resumeToolSessionId != null) {
+        Text("Resume by ID configured", color = theme.textMuted, style = MaterialTheme.typography.bodySmall)
+      }
       if (session.notificationsMuted) {
         Text(
           text = "Notifications muted",
