@@ -89,6 +89,34 @@ class NativeResumeTest {
     }
   }
 
+  @Test fun codexProfileAndConfigValuesAreNotResumeOrForkSubcommands() {
+    listOf("resume", "fork").forEach { value ->
+      listOf("--profile", "-p", "--config", "-c").forEach { option ->
+        val forms = listOf(listOf(option, value), listOf("$option=$value")) +
+          if (option.length == 2) listOf(listOf("$option$value")) else emptyList()
+        forms.forEach { args ->
+          assertEquals(listOf("resume", "chosen") + args, NativeResume.buildArgs(CliToolId.CODEX, args, "chosen"))
+        }
+      }
+    }
+    val args = listOf("--profile", "resume", "-c", "model_reasoning_effort=\"high\"", "--config", "note=\"fork\"")
+    assertEquals(listOf("resume", "chosen") + args, NativeResume.buildArgs(CliToolId.CODEX, args, "chosen"))
+  }
+
+  @Test fun codexProfileConfigAwarenessStillRejectsRealSelectorsAndIncompleteValues() {
+    listOf("--profile", "-p", "--config", "-c").forEach { option ->
+      listOf(listOf(option), listOf(option, ""), listOf("$option="), listOf(option, "--last"), listOf("$option=--last"))
+        .forEach { args -> assertThrows(IllegalArgumentException::class.java) {
+          NativeResume.buildArgs(CliToolId.CODEX, args, "chosen")
+        } }
+      listOf("resume", "fork", "--last", "--worktree", "--").forEach { selector ->
+        assertThrows(IllegalArgumentException::class.java) {
+          NativeResume.buildArgs(CliToolId.CODEX, listOf(option, "safe", selector), "chosen")
+        }
+      }
+    }
+  }
+
   @Test fun defaultManualKeepsRawSelectorsAndShellSyntax() {
     CliToolId.entries.forEach { tool ->
       val flags = "--resume old \$VAR; echo hi"

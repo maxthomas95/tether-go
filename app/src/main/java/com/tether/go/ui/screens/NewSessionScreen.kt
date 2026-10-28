@@ -37,8 +37,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.go.cli.CliToolId
 import com.tether.go.cli.CliToolRegistry
+import com.tether.go.cli.GuidedLaunchFlags
+import com.tether.go.cli.GuidedLaunchSelection
 import com.tether.go.cli.LaunchCommandBuilder
 import com.tether.go.cli.LaunchProfile
+import com.tether.go.cli.NativeResume
 import com.tether.go.session.SessionDraft
 import com.tether.go.ssh.SecureStorageException
 import com.tether.go.ssh.SshAuthMaterial
@@ -87,6 +90,7 @@ fun NewSessionScreen(
   var cliTool by remember { mutableStateOf(CliToolId.CLAUDE) }
   var guidedResume by remember { mutableStateOf(false) }
   var resumeId by remember { mutableStateOf("") }
+  var guidedSelection by remember { mutableStateOf(GuidedLaunchSelection()) }
   var customBinary by remember { mutableStateOf("") }
   var workingDir by remember { mutableStateOf("") }
   var selectedFlags by remember { mutableStateOf(setOf<String>()) }
@@ -100,17 +104,20 @@ fun NewSessionScreen(
   var starting by remember { mutableStateOf(false) }
 
   val portValid = parseSshPort(port) != null
-  // Keep Extra arguments intact: guided mode reads POSIX literal words, while
-  // Default / manual keeps its existing raw shell semantics.
-  val flags = selectedFlags.toList() + listOf(extraArgs).filter { it.isNotBlank() }
+  // Keep manual input separate: clearing controls restores it without rewriting.
+  val rawFlags = selectedFlags.toList() + listOf(extraArgs).filter { it.isNotBlank() }
+  val resolvedFlags = runCatching { GuidedLaunchFlags.resolve(cliTool, rawFlags, guidedSelection) }
   val env = envRows.filter { it.first.isNotBlank() }.associate { it.first.trim() to it.second }
-  val profile = LaunchProfile(
+  val profile = resolvedFlags.map { flags -> LaunchProfile(
     cliTool, customBinary.takeIf { it.isNotBlank() }, workingDir.takeIf { it.isNotBlank() }, flags, env,
     resumeToolSessionId = if (guidedResume) resumeId else null,
-  )
-  val preview = runCatching { LaunchCommandBuilder.build(profile) }
+  ) }
+  val preview = profile.mapCatching { LaunchCommandBuilder.build(it) }
   val validationError = preview.exceptionOrNull()?.message
-  var startError by remember(profile) { mutableStateOf<String?>(null) }
+  val resumeIdInvalid = guidedResume && runCatching { NativeResume.validateSessionId(resumeId) }.isFailure
+  var startError by remember(cliTool, rawFlags, guidedSelection, guidedResume, resumeId, customBinary, workingDir, env) {
+    mutableStateOf<String?>(null)
+  }
   val authReady = when (authMode) {
     AuthMode.Password -> password.isNotEmpty()
     AuthMode.PrivateKey -> selectedKeyId != null
@@ -156,6 +163,7 @@ fun NewSessionScreen(
     starting = true
     var launched = false
     try {
+      val launchProfile = profile.getOrNull() ?: return
       val parsedPort = parseSshPort(port) ?: return
       val auth = when (authMode) {
         AuthMode.Password -> SshAuthMaterial.Password(password)
@@ -182,10 +190,10 @@ fun NewSessionScreen(
           cliTool = cliTool,
           customBinary = customBinary.takeIf { it.isNotBlank() },
           workingDir = workingDir.takeIf { it.isNotBlank() },
-          flags = flags,
+          flags = launchProfile.flags,
           env = env,
           privateKeyId = if (authMode == AuthMode.PrivateKey) selectedKeyId else null,
-          resumeToolSessionId = profile.resumeToolSessionId,
+          resumeToolSessionId = launchProfile.resumeToolSessionId,
         ),
         auth,
       )
@@ -266,6 +274,7 @@ fun NewSessionScreen(
               selectedFlags = emptySet()
               guidedResume = false
               resumeId = ""
+              guidedSelection = GuidedLaunchSelection()
             }
           })
         }
@@ -284,10 +293,41 @@ fun NewSessionScreen(
       if (guidedResume) {
         TetherTextField(
           resumeId, { resumeId = it }, "Full native session ID",
-          modifier = Modifier.fillMaxWidth(), isError = validationError != null,
+          modifier = Modifier.fillMaxWidth(), isError = resumeIdInvalid,
         )
         Text(
           "Uses this CLI's native resume command on the selected host. Tether Go does not look up history or verify that the ID exists.",
+          color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
+        )
+      }
+      if (cliTool == CliToolId.CLAUDE || cliTool == CliToolId.OPENCODE || cliTool == CliToolId.CODEX) {
+        SectionHeader("Guided launch settings")
+        TetherTextField(
+          guidedSelection.model, { guidedSelection = guidedSelection.copy(model = it) }, "Model",
+          modifier = Modifier.fillMaxWidth(), placeholder = "CLI default (leave empty)",
+        )
+        if (cliTool == CliToolId.OPENCODE) {
+          TetherTextField(
+            guidedSelection.agent, { guidedSelection = guidedSelection.copy(agent = it) }, "Agent",
+            modifier = Modifier.fillMaxWidth(), placeholder = "e.g. build",
+          )
+        }
+        if (cliTool == CliToolId.CODEX) {
+          TetherTextField(
+            guidedSelection.nativeProfile, { guidedSelection = guidedSelection.copy(nativeProfile = it) }, "Native profile",
+            modifier = Modifier.fillMaxWidth(), placeholder = "e.g. work",
+          )
+          Text(
+            "References an existing Codex profile on the remote host, not a saved Tether Go launch profile.",
+            color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
+          )
+          TetherTextField(
+            guidedSelection.reasoningEffort, { guidedSelection = guidedSelection.copy(reasoningEffort = it) }, "Reasoning effort",
+            modifier = Modifier.fillMaxWidth(), placeholder = "e.g. low, medium, high, xhigh",
+          )
+        }
+        Text(
+          "Enter identifiers supported by your remote CLI; availability is not checked. Empty fields leave manual flags and native defaults unchanged. Do not enter secrets.",
           color = theme.textMuted, style = MaterialTheme.typography.bodySmall,
         )
       }

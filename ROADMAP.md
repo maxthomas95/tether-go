@@ -152,8 +152,13 @@ Goal: improve the phone-owned experience before adding shared-session backends.
   These do not discover history or synchronize desktop sessions.
 - [planned] History discovery/capture and transcript pickers, without parsing or
   replacing the terminal stream; no implicit latest/last or missing-ID fallback.
-- [planned] Model/agent selector UI and richer named launch profiles, after a
-  separate design for secure launch-value storage and migration.
+- [done] Guided New Session model (Claude/OpenCode/Codex), agent (OpenCode),
+  native remote profile and reasoning effort (Codex) controls, with safe free-form
+  identifiers, conservative manual-selector conflicts, and existing flag storage.
+  No runtime model/profile catalog or account access is included.
+- [planned] App-saved named launch profiles, after a separate design for secure
+  launch-value storage and migration. These are distinct from a native Codex
+  profile reference.
 - [planned] Import/export of desktop-style environment configuration.
 - [planned] Usage and quota tracking as passive side-channel data.
 - [planned] More complete key management, including key labels, rotation

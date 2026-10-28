@@ -67,9 +67,36 @@ The initial product direction is intentionally small:
 - Push-to-talk voice input that types final transcripts into the PTY.
 - Tether visual identity and theme continuity where practical.
 
+## Guided Launch Settings
+
+**New session** offers Model for Claude; Model and Agent for OpenCode; and
+Model, Native profile, and Reasoning effort for Codex. Copilot and Custom keep
+manual arguments only. Enter identifiers supported by the CLI installed on your
+remote host: there is no model catalog, account access, or availability lookup.
+A Codex native profile references existing remote CLI configuration (for example
+`work`), not an app-saved Tether Go launch profile. Reasoning is free-form, with
+examples such as `low`, `medium`, `high`, and `xhigh`; the remote CLI decides what
+it supports.
+
+Empty fields leave manual selectors and native defaults untouched. Surrounding
+whitespace is trimmed. Populated fields accept at most 128 ASCII letters/digits
+or `. _ : @ / + ~ -` (also `[` and `]` for Claude/OpenCode), with no leading `-`,
+embedded whitespace, quotes, or shell operators. A manual selector overlapping
+a populated field blocks Start: remove that manual selector or clear the guided
+field. No manual token is silently removed or replaced. Incomplete known
+options, ambiguous short groups, and `--` also block guided launch.
+
+The controls are temporary New Session input. Only the resolved, shell-quoted
+flags are saved in existing session metadata, so restart/reconnect uses the same
+command without a new schema field. Clearing controls restores your original
+Extra arguments. Switching CLI clears all guided settings and resume mode/ID,
+but retains Extra arguments for revalidation. For advanced shell syntax, choose
+**Default / manual** and clear every guided launch field. These controls do not
+change running sessions or encrypt launch metadata; never enter secrets.
+
 ## Resuming by Native ID
 
-In **New session**, keep **Default / manual** for the existing launch behavior,
+In **New session**, keep **Default / manual** with empty guided settings for the existing launch behavior,
 including any resume flags you enter yourself. It does not promise a new
 conversation. Choose **Resume by ID** for Claude, Codex, Copilot, or OpenCode and
 enter the full native session ID from that CLI on the selected remote host.
@@ -91,7 +118,8 @@ IDs must be 1–256 characters, without whitespace/control characters or a leadi
 `-`. Guided arguments accept literal POSIX quotes and escapes, but reject shell
 expansions, operators, and unquoted globs. Conflicting resume/continue/fork or
 worktree selectors and ambiguous option groups show an inline error and disable
-Start; remove the conflict or switch to Default / manual. Nothing is silently
+Start; remove the conflict or switch to Default / manual and clear guided launch
+settings. Nothing is silently
 removed. Invalid saved launch configurations show an error before reconnecting.
 Rows marked **Resume by ID configured** describe configuration, not live history.
 

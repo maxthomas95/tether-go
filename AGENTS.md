@@ -30,6 +30,8 @@ hardening.
 - Keep sessions phone-owned for v0.1.
 - Offer explicit-ID CLI-native resume helpers and Default / manual flags;
   keep history discovery/capture, transcript pickers, and desktop sync deferred.
+- Offer bounded guided model/agent and Codex native-profile/reasoning inputs;
+  persist only resolved existing flags, not catalogs or app-saved launch profiles.
 - Validate guided launch intent before saving/connecting; never fall back from
   a missing explicit ID to a fresh/latest session or a create-session flag.
 - Keep Coder, Vault, desktop API, Tether Agent, local Android PTY, and public relay out of v0.1.

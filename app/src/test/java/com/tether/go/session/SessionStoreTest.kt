@@ -1,6 +1,9 @@
 package com.tether.go.session
 
 import com.tether.go.cli.CliToolId
+import com.tether.go.cli.GuidedLaunchFlags
+import com.tether.go.cli.GuidedLaunchSelection
+import com.tether.go.cli.LaunchCommandBuilder
 import com.tether.go.ssh.StringPreferenceStore
 import java.util.Base64
 import org.junit.Assert.assertEquals
@@ -121,6 +124,27 @@ class SessionStoreTest {
     assertEquals("native-'id", store.loadSessions().single().launchProfile().resumeToolSessionId)
     store.upsertSession(session.copy(label = "Renamed", notificationsMuted = false))
     assertEquals(session.copy(label = "Renamed", notificationsMuted = false), store.loadSessions().single())
+  }
+
+  @Test
+  fun resolvedGuidedFlagsRoundTripInExistingSchemaAndReproduceLaunchCommands() {
+    val cases = listOf(
+      CliToolId.CLAUDE to GuidedLaunchSelection(model = "sonnet[1m]"),
+      CliToolId.OPENCODE to GuidedLaunchSelection(model = "provider/model", agent = "build"),
+      CliToolId.CODEX to GuidedLaunchSelection(model = "resume", nativeProfile = "fork", reasoningEffort = "xhigh"),
+    )
+    cases.forEach { (tool, selection) -> listOf(null, "explicit-id").forEach { resumeId ->
+      val backing = mutableMapOf<String, String>()
+      val flags = GuidedLaunchFlags.resolve(tool, listOf("'literal with spaces' '' '\$HOME;*'"), selection)
+      val session = sampleSession().copy(cliTool = tool, flags = flags, resumeToolSessionId = resumeId)
+      val command = LaunchCommandBuilder.build(session.launchProfile())
+      PreferenceBackedSessionStore(MapStore(backing)).upsertSession(session)
+      val restored = PreferenceBackedSessionStore(MapStore(backing)).loadSessions().single()
+      assertEquals(16, backing.getValue("session_records_v1").split('\t').size)
+      assertEquals(session, restored)
+      assertEquals(flags, restored.flags)
+      assertEquals(command, LaunchCommandBuilder.build(restored.launchProfile()))
+    } }
   }
 
   @Test

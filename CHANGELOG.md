@@ -8,6 +8,14 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Added
 
+- Guided New Session settings: Claude model; OpenCode model and agent; Codex
+  model, native remote profile reference, and free-form reasoning effort.
+  Active fields validate safe identifiers and reject overlapping manual
+  selectors without deleting arguments. Empty controls preserve existing
+  manual flags/defaults; changing CLI clears guided input. Only resolved quoted
+  flags persist in the existing metadata schema. No catalog, account access,
+  app-saved launch profiles, or secure launch-value storage is added.
+
 - Explicit **Resume by ID** command helper for Claude, Codex, Copilot, and
   OpenCode, with safe native argument ordering/quoting, inline ID/argument
   validation, and a saved-configuration indicator. **Default / manual** retains
@@ -68,6 +76,12 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
   terminal renderer spike screen.
 
 ### Fixed
+
+- Codex explicit resume recognizes profile/config option values (including
+  short attached forms) rather than mistaking values named `resume` or `fork`
+  for competing subcommands. Real selectors still fail closed.
+- Argument errors use a general guided-launch hint; unrelated launch errors no
+  longer mark the resume-ID field as invalid.
 
 - Launch environment assignments now use `env` before quoted `NAME=value`
   arguments instead of attempting to execute the assignment as a command.

@@ -52,6 +52,37 @@ class LaunchShellTest {
     assertTrue(command.contains("env 'FOO=a=b '\\''c'\\''' 'EMPTY=' codex"))
   }
 
+  @Test fun guidedIdentifiersAndLiteralManualArgsReachRealShellWithAndWithoutResume() = withFakeClis { root, cwd ->
+    val marker = File(root, "injected")
+    val literal = "\$HOME; touch ${marker.path}; \$(touch ${marker.path})"
+    // If the bracket model were unquoted, the shell would match this filename.
+    File(cwd, "--model=sonnet1").writeText("")
+    val manual = listOf("prompt with spaces", "", literal)
+    val cases = listOf(
+      Triple(CliToolId.CLAUDE, GuidedLaunchSelection(model = "sonnet[1m]"), listOf("--model=sonnet[1m]")),
+      Triple(CliToolId.OPENCODE, GuidedLaunchSelection(model = "sonnet[1m]", agent = "build"),
+        listOf("--model=sonnet[1m]", "--agent=build")),
+      Triple(CliToolId.CODEX, GuidedLaunchSelection(model = "resume", nativeProfile = "fork", reasoningEffort = "xhigh"),
+        listOf("--model=resume", "--profile=fork", "-c", "model_reasoning_effort=\"xhigh\"")),
+    )
+    cases.forEach { (tool, selection, generated) ->
+      val flags = GuidedLaunchFlags.resolve(tool, manual.map(ShellQuote::quoteArg), selection)
+      listOf(null, "chosen").forEach { id ->
+        val command = LaunchCommandBuilder.build(LaunchProfile(tool, workingDir = cwd.path, flags = flags, resumeToolSessionId = id))
+        val expected = if (id == null) manual + generated else NativeResume.buildArgs(tool, manual + generated, id)
+        assertEquals(listOf(cwd.path, "") + expected, execute(root, command))
+        assertFalse(marker.exists())
+      }
+    }
+  }
+
+  @Test fun guidedCodexKeepsTomlQuotesAndUnrelatedConfigPayloadsAsSingleArguments() = withFakeClis { root, cwd ->
+    val manual = listOf("--config", "note=\"a b \$HOME; resume\"", "-cprovider.name=\"other\"", "--profile", "resume")
+    val flags = GuidedLaunchFlags.resolve(CliToolId.CODEX, manual.map(ShellQuote::quoteArg), GuidedLaunchSelection(reasoningEffort = "high"))
+    val command = LaunchCommandBuilder.build(LaunchProfile(CliToolId.CODEX, workingDir = cwd.path, flags = flags, resumeToolSessionId = "id"))
+    assertEquals(listOf(cwd.path, "", "resume", "id") + manual + listOf("-c", "model_reasoning_effort=\"high\""), execute(root, command))
+  }
+
   private fun execute(root: File, command: String): List<String> {
     val builder = ProcessBuilder("/bin/sh", "-c", command).redirectErrorStream(true)
     builder.environment()["PATH"] = "${root.path}:/usr/bin:/bin"

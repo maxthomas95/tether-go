@@ -3,10 +3,10 @@ package com.tether.go.cli
 /**
  * A deliberately small POSIX word reader for guided launch arguments, not a
  * shell evaluator. Quotes and literal escapes are supported; anything requiring
- * shell expansion or execution must stay in Default / manual mode.
+ * shell expansion or execution needs Default / manual with cleared controls.
  */
 object PosixLiteralArguments {
-  private const val MANUAL_HINT = "Use Default / manual for shell syntax."
+  private const val MANUAL_HINT = "For advanced shell syntax, use Default / manual and clear all guided launch settings."
   private enum class Quote { None, Single, Double }
 
   fun parse(source: String): List<String> {
@@ -24,7 +24,7 @@ object PosixLiteralArguments {
         Quote.Single -> if (ch == '\'') quote = Quote.None else word.append(ch)
         Quote.Double -> when (ch) {
           '"' -> quote = Quote.None
-          '$', '`' -> throw IllegalArgumentException("Shell expansion is not supported in guided resume. $MANUAL_HINT")
+          '$', '`' -> throw IllegalArgumentException("Shell expansion is not supported in guided launch. $MANUAL_HINT")
           '\\' -> {
             require(index + 1 < source.length) { "Incomplete argument escape. $MANUAL_HINT" }
             val next = source[++index]
@@ -48,7 +48,7 @@ object PosixLiteralArguments {
             started = true
           }
           ch in "\$`;|&<>()*?[]{}~#" || ch.isWhitespace() ->
-            throw IllegalArgumentException("Shell syntax is not supported in guided resume. $MANUAL_HINT")
+            throw IllegalArgumentException("Shell syntax is not supported in guided launch. $MANUAL_HINT")
           else -> { word.append(ch); started = true }
         }
       }

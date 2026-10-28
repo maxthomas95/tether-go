@@ -8,11 +8,7 @@ object NativeResume {
     require(CliToolRegistry.byId(tool).supportsSessionResume) {
       "Guided resume is not supported for Custom commands. Use Default / manual."
     }
-    require(sessionId.isNotBlank()) { "Enter the full native session ID to resume." }
-    require(sessionId.length <= MAX_ID_LENGTH && !sessionId.startsWith('-') &&
-      sessionId.none { it.isWhitespace() || it.isISOControl() }) {
-      "Session ID must be at most $MAX_ID_LENGTH characters, with no whitespace or control characters, and cannot start with '-'."
-    }
+    validateSessionId(sessionId)
     require(!hasConflicts(tool, manualArgs)) {
       "Manual arguments contain a session selector or ambiguous option. Remove it or use Default / manual."
     }
@@ -27,25 +23,36 @@ object NativeResume {
     }
   }
 
+  /** Kept separate so unrelated argument errors do not mark the ID field. */
+  fun validateSessionId(sessionId: String) {
+    require(sessionId.isNotBlank()) { "Enter the full native session ID to resume." }
+    require(sessionId.length <= MAX_ID_LENGTH && !sessionId.startsWith('-') &&
+      sessionId.none { it.isWhitespace() || it.isISOControl() }) {
+      "Session ID must be at most $MAX_ID_LENGTH characters, with no whitespace or control characters, and cannot start with '-'."
+    }
+  }
+
   private fun hasConflicts(tool: CliToolId, args: List<String>): Boolean {
     val valueOptions = when (tool) {
       CliToolId.CLAUDE -> setOf("--model", "--permission-mode")
       CliToolId.OPENCODE -> setOf("--model", "--agent", "-m")
-      CliToolId.CODEX -> setOf("--model", "-m")
+      CliToolId.CODEX -> setOf("--model", "-m", "--profile", "-p", "--config", "-c")
       CliToolId.COPILOT -> setOf("--model")
       CliToolId.CUSTOM -> emptySet()
     }
     var index = 0
     while (index < args.size) {
       val arg = args[index]
-      if (arg in valueOptions) {
+      val option = valueOptions.firstOrNull { name ->
+        arg == name || arg.startsWith("$name=") ||
+          (name.length == 2 && arg.startsWith(name) && arg.length > 2)
+      }
+      if (option != null) {
         // Known value options consume their next literal, not a subcommand.
         // Incomplete/option-like values could swallow the managed selector.
-        val value = args.getOrNull(++index) ?: return true
+        val value = if (arg == option) args.getOrNull(++index) ?: return true
+          else arg.substring(option.length).removePrefix("=")
         if (value.isBlank() || value.startsWith('-')) return true
-      } else if ("-m" in valueOptions && arg.startsWith("-m") && arg.length > 2) {
-        // -mclaude is an attached model value, not a group containing -c.
-        if (arg.removePrefix("-m").removePrefix("=").isBlank()) return true
       } else if (conflicts(tool, arg)) {
         return true
       }

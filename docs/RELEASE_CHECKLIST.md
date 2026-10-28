@@ -104,7 +104,7 @@ Validate on a phone and an expanded tablet/foldable layout:
 These device/real-host checks remain outstanding; JVM tests use fake local CLIs,
 not real agent accounts. Validate on phone and expanded/foldable layouts:
 
-- [ ] Default / manual keeps existing raw flags (including manual resume) and
+- [ ] Default / manual with empty guided settings keeps existing raw flags (including manual resume) and
   is never labeled New. Custom cannot enable guided resume.
 - [ ] Resume a known full native ID on the selected host with Claude, Codex,
   Copilot, and OpenCode; verify native CLI results and raw terminal behavior.
@@ -113,7 +113,8 @@ not real agent accounts. Validate on phone and expanded/foldable layouts:
   error and disable Start. Correcting input restores the preview and Start.
 - [ ] Conflicting split/equals/attached/grouped/quoted selectors, incomplete
   known options, and shell expansions/operators/globs block guided launch;
-  safe quoted values work. Default / manual remains the escape hatch.
+  safe quoted values work. Default / manual with all guided settings cleared
+  remains the escape hatch.
 - [ ] Switching CLI clears guided mode and ID, does not reuse another CLI's ID,
   and revalidates retained Extra arguments when guided mode is selected again.
 - [ ] Cancel/back/reopen, repeated taps, and fold/unfold never start a hidden
@@ -127,3 +128,28 @@ not real agent accounts. Validate on phone and expanded/foldable layouts:
 - [ ] Valid env values with spaces, quotes, dollars, and semicolons arrive
   unchanged; invalid names show an error instead of crashing the preview.
   Do not use secrets: launch fields are not encrypted.
+
+### Guided Model, Agent, and Codex Settings
+
+These device/real-host checks remain outstanding; fake local CLI argv tests do
+not verify remote model, agent, profile, or reasoning availability:
+
+- [ ] Claude shows Model; OpenCode shows Model and Agent; Codex shows Model,
+  Native profile, and Reasoning effort. Copilot/Custom show none of these.
+- [ ] Empty controls preserve manual/native defaults. Valid identifiers produce
+  the expected preview; overlapping manual selectors, invalid identifiers,
+  incomplete options, ambiguous short groups, and `--` show an error and block
+  Start without rewriting Extra arguments or incorrectly marking the resume ID.
+- [ ] Claude/OpenCode bracket model aliases arrive literally. Codex reasoning
+  reaches the CLI as one `model_reasoning_effort="high"` config argument; test
+  another supported effort such as `xhigh` on the actual remote installation.
+- [ ] Choose an existing Codex native profile on the selected host, including a
+  safe name such as `resume`/`fork` if configured. Combine settings with explicit
+  resume IDs and confirm the remote CLI accepts the invocation.
+- [ ] Clear fields, change CLI repeatedly, cancel/back/reopen, and fold/unfold.
+  No stale guided values cross tools; retained Extra arguments are revalidated;
+  repeated Start taps never duplicate the launch.
+- [ ] Restart/reconnect reproduces resolved flags both with and without an
+  explicit resume ID. Existing fourteen-/fifteen-/sixteen-field records retain
+  flags, environment, timestamps, mute, and resume behavior. No new schema
+  column or app-saved launch profile is introduced.
