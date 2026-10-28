@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.tether.go.session.SessionListQuery
 import com.tether.go.session.SessionUiModel
 import com.tether.go.session.TerminalAppearance
 import com.tether.go.ui.nav.Screen
@@ -113,6 +114,9 @@ fun TetherGoApp(
   }
 
   val sessions by manager.sessions.collectAsState()
+  // Discovery is presentation-only and survives navigation and fold/unfold.
+  // It never changes which terminal is selected or marked active by the manager.
+  var sessionListQuery by remember { mutableStateOf(SessionListQuery()) }
 
   fun ensureForeground() {
     ContextCompat.startForegroundService(context, SessionService.intent(context))
@@ -189,6 +193,8 @@ fun TetherGoApp(
                 sessions = sessions,
                 theme = theme,
                 selectedSessionId = (detail as? Screen.Terminal)?.sessionId,
+                sessionListQuery = sessionListQuery,
+                onSessionListQueryChange = { sessionListQuery = it },
                 fontSize = fontSize,
                 themeName = themeName,
                 onThemeChange = { themeName = it; settings.setThemeName(it) },
@@ -210,6 +216,8 @@ fun TetherGoApp(
                   sessions = sessions,
                   theme = theme,
                   selectedSessionId = null,
+                  sessionListQuery = sessionListQuery,
+                  onSessionListQueryChange = { sessionListQuery = it },
                   fontSize = fontSize,
                   themeName = themeName,
                   onThemeChange = { themeName = it; settings.setThemeName(it) },
@@ -243,6 +251,8 @@ fun TetherGoApp(
             sessions = sessions,
             theme = theme,
             selectedSessionId = null,
+            sessionListQuery = sessionListQuery,
+            onSessionListQueryChange = { sessionListQuery = it },
             fontSize = fontSize,
             themeName = themeName,
             onThemeChange = { themeName = it; settings.setThemeName(it) },
@@ -272,6 +282,8 @@ private fun ScreenContent(
   sessions: List<SessionUiModel>,
   theme: TetherTheme,
   selectedSessionId: String?,
+  sessionListQuery: SessionListQuery,
+  onSessionListQueryChange: (SessionListQuery) -> Unit,
   fontSize: Int,
   themeName: String,
   onThemeChange: (String) -> Unit,
@@ -295,18 +307,24 @@ private fun ScreenContent(
         manager.reconnect(id, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
       },
       onRemove = { manager.removeSession(it) },
+      onSetMuted = { id, muted -> manager.setMuted(id, muted) },
       canReconnect = { manager.canReconnectSilently(it) },
+      query = sessionListQuery,
+      onQueryChange = onSessionListQueryChange,
       selectedSessionId = selectedSessionId,
     )
 
     Screen.NewSession -> NewSessionScreen(
+      launchDefaultsStore = service.settings.launchDefaults,
       hostStore = service.hostStore,
       privateKeyStore = service.privateKeyStore,
       onCancel = nav.back,
       onStart = { draft, auth ->
         ensureForeground()
-        val id = manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE)
-        nav.onSessionCreated(id)
+        manager.createSession(draft, auth, appearanceFor(theme), DEFAULT_TERMINAL_SIZE).fold(
+          onSuccess = { id -> nav.onSessionCreated(id); null },
+          onFailure = { error -> error.message ?: "Session could not be launched" },
+        )
       },
     )
 
@@ -325,6 +343,7 @@ private fun ScreenContent(
     )
 
     Screen.Settings -> SettingsScreen(
+      launchDefaultsStore = service.settings.launchDefaults,
       currentThemeName = themeName,
       onThemeChange = onThemeChange,
       fontSize = fontSize,

@@ -9,8 +9,19 @@ sonar {
     property("sonar.projectKey", "maxthomas95_tether-go")
     property("sonar.organization", "maxthomas95")
     property("sonar.host.url", "https://sonarcloud.io")
-    // Coverage gates should start when executable product behavior lands.
-    property("sonar.coverage.exclusions", "**/*")
+    // Use the same release version as the APK, not a per-build version.
+    property(
+      "sonar.projectVersion",
+      project(":app").extensions
+        .getByType<com.android.build.api.dsl.ApplicationExtension>()
+        .defaultConfig.versionName!!,
+    )
+    // AGP's native debug unit-test report includes untested production classes.
+    // An absolute path is inherited correctly by the Android subproject.
+    property(
+      "sonar.coverage.jacoco.xmlReportPaths",
+      layout.projectDirectory.file("app/build/reports/coverage/test/debug/report.xml").asFile.absolutePath,
+    )
     // Binary image assets are not source; don't scan them for encoding/issues.
     property("sonar.exclusions", "**/*.png")
     // The theme palette is a 1:1 ported value table (repetitive data, not

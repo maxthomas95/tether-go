@@ -8,6 +8,37 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Added
 
+- Guided New Session settings: Claude model; OpenCode model and agent; Codex
+  model, native remote profile reference, and free-form reasoning effort.
+  Active fields validate safe identifiers and reject overlapping manual
+  selectors without deleting arguments. Empty controls preserve existing
+  manual flags/defaults; changing CLI clears guided input. Only resolved quoted
+  flags persist in the existing metadata schema. No catalog, account access,
+  app-saved launch profiles, or secure launch-value storage is added.
+
+- Explicit **Resume by ID** command helper for Claude, Codex, Copilot, and
+  OpenCode, with safe native argument ordering/quoting, inline ID/argument
+  validation, and a saved-configuration indicator. **Default / manual** retains
+  raw flags and shell behavior; Custom has no guided resume mode. No remote
+  history discovery, latest-session lookup, or desktop synchronization is added.
+- Saved explicit resume IDs survive restart, rename, mute, and reconnect in a
+  sixteenth metadata field. Fourteen-/fifteen-field records retain their prior
+  mute/default-launch behavior. Invalid launch intent fails before save/connect,
+  and invalid restored configurations surface an error rather than launching.
+
+- Explicit Android 13+ notification permission action in Settings, with an
+  Android settings fallback after denial/dismissal and refreshed app/channel
+  access status on return. The app alert preference remains independent.
+
+- Nord, Gruvbox Dark, Gruvbox Light, and Harbor appearance themes, completing
+  the 11 built-in desktop theme choices.
+
+- Ranked fuzzy session search across labels, SSH endpoints, working directories,
+  and CLI tools, plus an All / Waiting filter in phone and expanded layouts.
+  No-match results can be cleared without changing the active terminal.
+- Per-session notification mute / unmute actions and a visible muted state.
+  Mute preferences persist across app restarts; existing saved sessions default
+  to unmuted, and muting clears an existing session alert.
 - Tether product UI shell with the house visual identity. The session list is
   now the home screen, grouped by host, with CLI-tool chips, status dots, and
   per-session rename / disconnect / reconnect / remove actions.
@@ -34,8 +65,31 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Changed
 
+- Built-in theme colors now match corresponding current desktop tokens,
+  including improved muted-text contrast. Stored theme IDs, picker order for
+  existing themes, and the Mocha default are unchanged. Native terminal
+  cursor/selection behavior and custom-theme import remain separate work.
+
+- Session counts and connection actions consistently treat Connecting, Running,
+  Waiting, and Idle as live; Idle sessions correctly offer Disconnect.
 - `MainActivity` hosts the product navigation (`TetherGoApp`) instead of the
   terminal renderer spike screen.
+
+### Fixed
+
+- Codex explicit resume recognizes profile/config option values (including
+  short attached forms) rather than mistaking values named `resume` or `fork`
+  for competing subcommands. Real selectors still fail closed.
+- Argument errors use a general guided-launch hint; unrelated launch errors no
+  longer mark the resume-ID field as invalid.
+
+- Launch environment assignments now use `env` before quoted `NAME=value`
+  arguments instead of attempting to execute the assignment as a command.
+  Empty-environment launches are unchanged; real local POSIX-shell tests cover
+  environment values, working directories, and native argument boundaries.
+- Invalid launch previews display validation errors and disable Start rather
+  than throwing during form rendering. Guided commands are prevalidated before
+  SSH connection, not rebuilt unsafely in the connected-state coroutine.
 
 ### Removed
 

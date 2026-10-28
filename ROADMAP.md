@@ -12,8 +12,8 @@ waiting on something, **[done]** implemented in the current codebase.
 Tether Go should prove that a phone can be a useful remote control surface for
 agent CLIs without becoming a chat renderer or desktop-session clone. v0.1 stays
 small: direct SSH, real PTY, native terminal rendering, phone-owned sessions,
-host-key TOFU, encrypted private keys, local notifications, and manual
-CLI-native resume.
+host-key TOFU, encrypted private keys, local notifications, and CLI-native
+resume through explicit-ID helpers or manual flags.
 
 The core invariant does not change by phase: raw PTY bytes go into the terminal
 emulator, and user input goes back to stdin unchanged. Any status, notification,
@@ -147,8 +147,18 @@ Goal: improve the phone-owned experience before adding shared-session backends.
 
 - [planned] Better session lifecycle controls and clearer reconnect failure
   recovery.
-- [planned] CLI-native resume helpers or transcript pickers that do not parse or
-  replace the terminal stream.
+- [done] Explicit-ID CLI-native command helpers for Claude, Codex, Copilot, and
+  OpenCode, with Default / manual compatibility and fail-closed validation.
+  These do not discover history or synchronize desktop sessions.
+- [planned] History discovery/capture and transcript pickers, without parsing or
+  replacing the terminal stream; no implicit latest/last or missing-ID fallback.
+- [done] Guided New Session model (Claude/OpenCode/Codex), agent (OpenCode),
+  native remote profile and reasoning effort (Codex) controls, with safe free-form
+  identifiers, conservative manual-selector conflicts, and existing flag storage.
+  No runtime model/profile catalog or account access is included.
+- [planned] App-saved named launch profiles, after a separate design for secure
+  launch-value storage and migration. These are distinct from a native Codex
+  profile reference.
 - [planned] Import/export of desktop-style environment configuration.
 - [planned] Usage and quota tracking as passive side-channel data.
 - [planned] More complete key management, including key labels, rotation

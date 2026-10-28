@@ -15,8 +15,10 @@ private const val SESSIONS_PREFS_NAME = "tether_go_sessions"
  * tab-separated, base64url-per-field encoding as the SSH host store so it stays
  * dependency-free and unit-testable on the JVM (no Android JSON).
  *
- * No secrets are stored here: only a `privateKeyId` reference, never key bytes,
- * passphrases, or passwords.
+ * SSH credentials are referenced only by `privateKeyId`, never key bytes,
+ * passphrases, or passwords. Launch flags and environment values ARE saved
+ * here as encoding, not encryption; callers must not treat these fields as
+ * secure storage for tokens or other secrets.
  */
 interface SessionStore {
   fun loadSessions(): List<Session>
@@ -31,10 +33,12 @@ open class PreferenceBackedSessionStore(
     preferences.getString(SESSION_RECORDS_KEY).decodeSessions()
 
   override fun upsertSession(session: Session): List<Session> {
-    val next = loadSessions()
-      .filterNot { it.id == session.id }
-      .plus(session)
-      .sortedByDescending { it.updatedAtMillis }
+    val current = loadSessions()
+    // Replace in place so preference-only updates preserve equal-timestamp order.
+    val existingIndex = current.indexOfFirst { it.id == session.id }
+    val updated = current.filterNot { it.id == session.id }.toMutableList()
+    updated.add(if (existingIndex >= 0) existingIndex else updated.size, session)
+    val next = updated.sortedByDescending { it.updatedAtMillis }
     preferences.putString(SESSION_RECORDS_KEY, next.encodeSessions())
     return next
   }
@@ -56,7 +60,9 @@ class SharedPreferencesSessionStore(
 
 // ── Encoding ──────────────────────────────────────────────────────────────
 
-private const val FIELD_COUNT = 14
+private const val LEGACY_FIELD_COUNT = 14
+private const val MUTE_FIELD_COUNT = 15
+private const val FIELD_COUNT = 16
 private const val LIST_SEPARATOR = "\n"
 private const val KV_SEPARATOR = "="
 
@@ -77,6 +83,8 @@ private fun List<Session>.encodeSessions(): String =
       s.privateKeyId.orEmpty(),
       s.createdAtMillis.toString(),
       s.updatedAtMillis.toString(),
+      s.notificationsMuted.toString(),
+      s.resumeToolSessionId.orEmpty(),
     )
   }
 
@@ -84,7 +92,7 @@ private fun String?.decodeSessions(): List<Session> {
   if (isNullOrBlank()) return emptyList()
   return lineSequence().mapNotNull { line ->
     val fields = line.split('\t')
-    if (fields.size != FIELD_COUNT) return@mapNotNull null
+    if (fields.size !in LEGACY_FIELD_COUNT..FIELD_COUNT) return@mapNotNull null
     val decoded = fields.map { encoded ->
       runCatching {
         String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8)
@@ -93,6 +101,12 @@ private fun String?.decodeSessions(): List<Session> {
     val port = decoded[4].toIntOrNull() ?: return@mapNotNull null
     val createdAt = decoded[12].toLongOrNull() ?: return@mapNotNull null
     val updatedAt = decoded[13].toLongOrNull() ?: return@mapNotNull null
+    // v1 records predating per-session controls had 14 fields and were unmuted.
+    val notificationsMuted = if (decoded.size == LEGACY_FIELD_COUNT) {
+      false
+    } else {
+      decoded[14].toBooleanStrictOrNull() ?: return@mapNotNull null
+    }
     Session(
       id = decoded[0],
       label = decoded[1],
@@ -108,6 +122,10 @@ private fun String?.decodeSessions(): List<Session> {
       privateKeyId = decoded[11].takeIf { it.isNotBlank() },
       createdAtMillis = createdAt,
       updatedAtMillis = updatedAt,
+      notificationsMuted = notificationsMuted,
+      // Preserve nonempty invalid values for launch validation, never turn a
+      // damaged explicit-resume configuration into a default/fresh launch.
+      resumeToolSessionId = if (decoded.size > MUTE_FIELD_COUNT) decoded[15].takeIf { it.isNotEmpty() } else null,
     )
   }.toList()
 }

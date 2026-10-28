@@ -68,6 +68,7 @@ data class SessionDraft(
   val flags: List<String>,
   val env: Map<String, String>,
   val privateKeyId: String?,
+  val resumeToolSessionId: String? = null,
 )
 
 /**
@@ -90,6 +91,9 @@ class SessionManager(
     val sshSession: SshTerminalSession,
   ) {
     var terminal: TerminalEmulator? = null
+    val state = MutableStateFlow(SshTerminalState())
+    var launchCommand: String? = null
+    var launchError: String? = null
     var launchSent: Boolean = false
     var collectJob: Job? = null
   }
@@ -105,7 +109,6 @@ class SessionManager(
 
   private val detector = StatusDetector(scope)
   private val detectedStates = HashMap<String, DetectedState>()
-  private val mutedSessions = mutableSetOf<String>()
 
   /** Wired by the foreground service; null in tests / before the service binds. */
   var notifier: SessionNotifier? = null
@@ -137,20 +140,28 @@ class SessionManager(
     appForeground = foreground
   }
 
-  fun isMuted(sessionId: String): Boolean = mutedSessions.contains(sessionId)
+  fun isMuted(sessionId: String): Boolean =
+    runtimes[sessionId]?.session?.notificationsMuted ?: false
 
+  /** Persist per-session notification controls without changing its connection. */
   fun setMuted(sessionId: String, muted: Boolean) {
-    if (muted) {
-      mutedSessions.add(sessionId)
-      notifier?.cancel(sessionId)
-    } else {
-      mutedSessions.remove(sessionId)
+    val runtime = runtimes[sessionId] ?: return
+    if (runtime.session.notificationsMuted != muted) {
+      // Mute is a preference, not session activity: keep its timestamp/order.
+      // Publish after the store accepts the update; synchronous failures leave
+      // the runtime unchanged. SharedPreferences still flushes asynchronously.
+      val updated = runtime.session.copy(notificationsMuted = muted)
+      store.upsertSession(updated)
+      runtime.session = updated
+      recompute()
     }
+    // Also clear an already-posted alert when the session is muted again.
+    if (muted) notifier?.cancel(sessionId)
   }
 
   /** Number of sessions holding (or establishing) a live connection. */
   fun connectedCount(): Int = _sessions.value.count {
-    it.status != SessionStatus.Disconnected && it.status != SessionStatus.Error
+    it.status.isLive
   }
 
   /** Drop all live connections (used when the app is intentionally closed). */
@@ -159,7 +170,7 @@ class SessionManager(
   }
 
   fun sshStateFor(sessionId: String): StateFlow<SshTerminalState> =
-    runtimes[sessionId]?.sshSession?.state ?: emptySshState
+    runtimes[sessionId]?.state ?: emptySshState
 
   fun terminalFor(sessionId: String): TerminalEmulator? = runtimes[sessionId]?.terminal
 
@@ -171,7 +182,7 @@ class SessionManager(
     auth: SshAuthMaterial,
     appearance: TerminalAppearance,
     terminalSize: TerminalDimensions,
-  ): String {
+  ): Result<String> {
     val now = clock()
     val session = Session(
       id = UUID.randomUUID().toString(),
@@ -186,14 +197,21 @@ class SessionManager(
       flags = draft.flags,
       env = draft.env,
       privateKeyId = draft.privateKeyId,
+      resumeToolSessionId = draft.resumeToolSessionId,
       createdAtMillis = now,
       updatedAtMillis = now,
     )
-    val runtime = addRuntime(session)
+    // Reject invalid intent before persistence, terminal allocation, or SSH.
+    val command = try {
+      LaunchCommandBuilder.build(session.launchProfile())
+    } catch (error: IllegalArgumentException) {
+      return Result.failure(error)
+    }
     store.upsertSession(session)
-    connectRuntime(runtime, auth, appearance, terminalSize)
+    val runtime = addRuntime(session)
+    connectRuntime(runtime, auth, appearance, terminalSize, command)
     recompute()
-    return session.id
+    return Result.success(session.id)
   }
 
   /** Reconnect an existing session using stored (private-key) auth if available. */
@@ -203,8 +221,9 @@ class SessionManager(
     terminalSize: TerminalDimensions,
   ): Boolean {
     val runtime = runtimes[sessionId] ?: return false
+    val command = prepareLaunch(runtime) ?: return false
     val auth = resolveStoredAuth(runtime.session) ?: return false
-    connectRuntime(runtime, auth, appearance, terminalSize)
+    connectRuntime(runtime, auth, appearance, terminalSize, command)
     return true
   }
 
@@ -219,7 +238,8 @@ class SessionManager(
     terminalSize: TerminalDimensions,
   ) {
     val runtime = runtimes[sessionId] ?: return
-    connectRuntime(runtime, SshAuthMaterial.Password(password), appearance, terminalSize)
+    val command = prepareLaunch(runtime) ?: return
+    connectRuntime(runtime, SshAuthMaterial.Password(password), appearance, terminalSize, command)
   }
 
   fun disconnect(sessionId: String) {
@@ -234,7 +254,6 @@ class SessionManager(
     notifier?.cancel(sessionId)
     states.remove(sessionId)
     detectedStates.remove(sessionId)
-    mutedSessions.remove(sessionId)
     store.deleteSession(sessionId)
     recompute()
   }
@@ -263,11 +282,14 @@ class SessionManager(
     detector.register(session.id)
     runtime.collectJob = scope.launch {
       runtime.sshSession.state.collect { state ->
+        // A pending initial transport emission must not erase a launch error.
+        if (runtime.launchError != null) return@collect
         states[session.id] = state
+        runtime.state.value = state
         if (state.phase == SshTerminalPhase.Connected && !runtime.launchSent) {
           runtime.launchSent = true
-          val command = LaunchCommandBuilder.build(runtime.session.launchProfile())
-          if (command.isNotBlank()) {
+          val command = runtime.launchCommand
+          if (!command.isNullOrBlank()) {
             runtime.sshSession.sendInput((command + "\n").toByteArray(Charsets.UTF_8))
           }
         }
@@ -283,12 +305,28 @@ class SessionManager(
     return runtime
   }
 
+  private fun prepareLaunch(runtime: Runtime): String? = try {
+    LaunchCommandBuilder.build(runtime.session.launchProfile())
+  } catch (error: IllegalArgumentException) {
+    val message = "Cannot launch session: ${error.message}"
+    runtime.launchError = message
+    runtime.launchCommand = null
+    val state = SshTerminalState(message = message, error = message)
+    states[runtime.session.id] = state
+    runtime.state.value = state
+    recompute()
+    null
+  }
+
   private fun connectRuntime(
     runtime: Runtime,
     auth: SshAuthMaterial,
     appearance: TerminalAppearance,
     terminalSize: TerminalDimensions,
+    command: String,
   ) {
+    runtime.launchCommand = command
+    runtime.launchError = null
     val terminal = ensureTerminal(runtime, appearance)
     runtime.launchSent = false
     detector.reset(runtime.session.id)
@@ -364,11 +402,15 @@ class SessionManager(
   }
 
   private fun maybeNotify(sessionId: String, isBell: Boolean) {
-    if (!notificationsEnabled || mutedSessions.contains(sessionId)) return
-    // Don't ping the session the user is actively looking at.
-    if (appForeground && activeSessionId == sessionId) return
-    if (states[sessionId]?.phase != SshTerminalPhase.Connected) return
     val session = runtimes[sessionId]?.session ?: return
+    val eligible = shouldNotifySession(
+      session = session,
+      notificationsEnabled = notificationsEnabled,
+      appForeground = appForeground,
+      activeSessionId = activeSessionId,
+      connected = states[sessionId]?.phase == SshTerminalPhase.Connected,
+    )
+    if (!eligible) return
     notifier?.notifyWaiting(session, isBell)
   }
 

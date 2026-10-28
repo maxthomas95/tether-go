@@ -76,7 +76,7 @@ SSH transport
         v
 Remote host / VM
     - shell
-    - Claude / Codex / OpenCode / custom CLI
+    - Claude / Codex / Copilot / OpenCode / custom CLI
     - CLI-native transcript and resume metadata
 ```
 
@@ -84,7 +84,7 @@ Remote host / VM
 
 ```
 TetherGoApp (root)
-    - stores: SshHostStore, SshPrivateKeyStore, SessionStore, SettingsStore
+    - stores: SshHostStore, SshPrivateKeyStore, SessionStore, SettingsStore (including LaunchDefaultsStore)
     - SessionManager (alive for the app process)
     - theme + font state, in-memory navigation back stack
         |
@@ -92,7 +92,7 @@ TetherGoApp (root)
         +-- NewSessionScreen    (host/auth/CLI/dir/flags/env/label -> SessionDraft)
         +-- TerminalScreen      (termlib terminal + mobile quick bar)
         +-- HostsScreen         (manage hosts + imported keys)
-        +-- SettingsScreen      (theme picker, terminal font, about)
+        +-- SettingsScreen      (theme, terminal font, notifications, CLI defaults, about)
 ```
 
 - **SessionManager** holds one runtime per session: an `SshTerminalSession`
@@ -100,10 +100,61 @@ TetherGoApp (root)
   observable `StateFlow<List<SessionUiModel>>` (metadata + derived status) for
   the list, creates/persists sessions, reconnects using stored private-key auth
   when available, and types the launch command into the PTY once on connect.
+- **Session discovery** is pure metadata-only fuzzy ranking, adapted from the
+  desktop session switcher. Label / directory / SSH endpoint / CLI weights are
+  1.0 / 0.6 / 0.45 / 0.4, with stable input order on ties. The All / Waiting
+  filter uses the shared status helpers. Query state is hoisted above compact
+  and expanded layouts and never drives session selection or transport state.
 - **Launch command** is assembled by `LaunchCommandBuilder` from the
   `cli` package (CLI registry + POSIX `ShellQuote`), ported from desktop Tether
-  shared code. It is only string assembly — the same command a user would type
-  — and is written to stdin, never wrapped or parsed, preserving the dumb pipe.
+  shared code. Default / manual with empty guided settings preserves raw shell flags. Explicit native
+  resume-by-ID uses a pure literal-only POSIX argument reader, conservative
+  selector-conflict validation, and single-argument shell quoting. This parses
+  launch input only, never CLI output. Validated commands are cached before
+  saving/connecting and written once to stdin; invalid restored configurations
+  publish an existing session error without allocating a terminal/opening SSH.
+  Nonempty environment assignments are prefixed with `env`; zero-env commands
+  are unchanged.
+- **Guided launch settings** use immutable `GuidedLaunchSelection` snapshots:
+  Claude model, OpenCode model/agent, and Codex model/native profile/reasoning.
+  The pure `GuidedLaunchFlags.normalize` validator is shared by saved defaults
+  and per-session resolution. `GuidedLaunchFlags.resolve` returns the
+  original fragments untouched when all fields are empty. Active fields use
+  desktop-compatible bounded identifier allowlists, the literal-only POSIX
+  argument reader, and a value-aware conflict scan. Overlapping manual selectors,
+  ambiguous short forms, incomplete known options, and end-of-options markers
+  fail closed; unrelated words and config payloads are not removed. Every final
+  token is shell-quoted, including literal TOML quotes in Codex reasoning config.
+  One resolved flag list feeds both preview and `SessionDraft`, then the existing
+  native resume builder if selected. Only those flags persist; no column or
+  transport changes are needed. Native profile means a pre-existing remote
+  Codex configuration reference, not an app-saved launch profile. There is no
+  runtime catalog, account lookup, or availability verification.
+- **CLI launch defaults** use `PreferenceBackedLaunchDefaultsStore` over the
+  existing `StringPreferenceStore` abstraction. Each supported CLI owns one
+  `guided_launch_<cli>_v1` key in `tether_go_launch_defaults`, containing one
+  version/tool/model/agent/native-profile/reasoning record. The shared identifier
+  validator excludes tab delimiters. Exact field count, version, tool identity,
+  length, supported fields and identifiers are checked on read. Missing records
+  are empty; malformed/unsupported records raise recoverable errors and are
+  never automatically deleted or overwritten, including on empty Save. Only
+  explicit Clear bypasses that read guard. Save validates before accessing
+  preferences; all-empty Save clears just the selected key. Each operation is
+  one whole-record put/remove, not independent field writes. SharedPreferences
+  `apply()` updates memory and flushes asynchronously, not a disk-durability
+  acknowledgment. No secret-bearing data, resume IDs or raw arguments are added.
+  Copilot and Custom have no managed defaults and do not access these keys.
+  Settings uses controlled shared fields and explicit Save/Clear/Cancel; changing
+  tool or leaving discards unsaved edits. New Session snapshots defaults on entry
+  and tool change, blocks launch on a failed load until explicit bypass/recovery,
+  and never writes the defaults store. Clear-for-this-session and restore affect
+  only guided choices, not manual arguments or explicit resume intent. Later
+  defaults changes cannot alter existing Session flags or reconnect commands.
+  `SessionLaunchState.resolveLaunch` is shared by preview and Start; Start resolves
+  afresh from current inputs before key reads or host saves, never from a cached
+  preview. Editor actions and default-restore callbacks reject a stale composed
+  tool so rapid switches cannot apply another CLI's draft/defaults.
+  This is phone-local preference parity, not backend sync or named launch profiles.
 - **Theme** tokens (`TetherTheme`) are ported 1:1 from the desktop renderer
   theme registry and provided via `LocalTetherTheme`; the same tokens drive the
   Material3 color scheme and the terminal ANSI palette.
@@ -111,7 +162,43 @@ TetherGoApp (root)
   it (sessions stay alive); the `SessionManager` scope is tied to the root
   composition, so intentionally closing the app tears sessions down.
 - **Persistence**: session metadata is stored with the same tab/base64 encoding
-  as the host store, and contains no secrets (only a `privateKeyId` reference).
+  as the host store, with only a `privateKeyId` reference to secure key storage.
+  A fifteenth field stores `notificationsMuted`; a sixteenth optional field
+  stores `resumeToolSessionId`. Fourteen-field records load unmuted with no
+  guided resume ID; fifteen-field records retain mute with no ID. Nonempty
+  invalid IDs remain intact so launch validation fails closed, never silently
+  changing explicit resume into default/fresh launch. Preference-only mute updates preserve activity timestamps and
+  equal-timestamp ordering. The manager submits changes to storage before
+  publishing them (SharedPreferences flushes asynchronously),
+  cancels an existing alert when muted, and applies the stored setting alongside
+  the global, active-terminal, and connection notification gates. Launch env
+  values remain existing session metadata and are excluded from discovery.
+
+## Explicit Native Resume Boundary
+
+New Session offers **Default / manual** and **Resume by ID** for Claude, Codex,
+Copilot, and OpenCode. Custom cannot enable guided mode. Tool changes clear the
+mode/ID and replace guided choices with the selected CLI's saved-default snapshot
+to prevent cross-tool reuse, while retained Extra arguments are checked again
+when guided mode is selected. The ID is bounded to 256 characters, cannot
+contain whitespace/control characters or start with `-`, and is quoted as one
+shell argument. It is not verified against the remote CLI's history.
+
+Native argv mirrors desktop `buildCliArgsForTool`: Claude manual arguments then
+`--resume ID`; Codex `resume ID` then manual arguments; Copilot `--resume ID`
+then manual arguments; OpenCode `--session ID` then manual arguments. The
+Copilot helper is explicit-command support, not a claim of desktop remote
+history-discovery parity. No `--session-id` substitution, missing-ID retry,
+latest/last lookup, transcript parsing, remote history probing, or desktop API
+is introduced. Reconnect preserves the explicit ID; the CLI alone resolves it.
+
+Managed mode rejects conflicting native selectors, end-of-options markers,
+ambiguous short groups, incomplete known value options, and nonliteral shell
+syntax. Known model/agent and Codex profile/config values are not treated as selectors. Literal quotes
+and escapes are accepted and re-quoted safely. Default / manual is deliberately
+not tokenized or restricted by these guided-mode checks when the guided launch
+settings are empty. App-saved named launch profiles, secure launch-value storage,
+history capture/pickers, and shared desktop sessions remain separate work.
 
 ## Terminal Renderer Decision
 

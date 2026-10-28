@@ -25,10 +25,16 @@ hardening.
 
 - Direct SSH to a reachable host or VM.
 - Open a real remote PTY.
-- Launch Claude, Codex, OpenCode, or a custom CLI.
+- Launch Claude, Codex, Copilot, OpenCode, or a custom CLI.
 - Render a real terminal TUI on Android.
 - Keep sessions phone-owned for v0.1.
-- Let users manually run CLI-native resume commands when they want resume.
+- Offer explicit-ID CLI-native resume helpers and Default / manual flags;
+  keep history discovery/capture, transcript pickers, and desktop sync deferred.
+- Offer bounded guided model/agent and Codex native-profile/reasoning inputs;
+  persist resolved flags in existing sessions and explicit phone-local per-CLI
+  defaults separately, not catalogs or app-saved named launch profiles.
+- Validate guided launch intent before saving/connecting; never fall back from
+  a missing explicit ID to a fresh/latest session or a create-session flag.
 - Keep Coder, Vault, desktop API, Tether Agent, local Android PTY, and public relay out of v0.1.
 
 ## Expected Tech Direction

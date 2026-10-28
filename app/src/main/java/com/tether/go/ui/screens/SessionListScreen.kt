@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tether.go.session.SessionListFilter
+import com.tether.go.session.SessionListQuery
 import com.tether.go.session.SessionStatus
 import com.tether.go.session.SessionUiModel
 import com.tether.go.ui.branding.TetherLogo
@@ -70,11 +73,17 @@ fun SessionListScreen(
   onDisconnect: (String) -> Unit,
   onReconnect: (String) -> Unit,
   onRemove: (String) -> Unit,
+  onSetMuted: (String, Boolean) -> Unit,
   canReconnect: (String) -> Boolean,
+  query: SessionListQuery,
+  onQueryChange: (SessionListQuery) -> Unit,
   selectedSessionId: String? = null,
 ) {
   val theme = LocalTetherTheme.current
   var renameTarget by remember { mutableStateOf<SessionUiModel?>(null) }
+  val visibleSessions = remember(sessions, query) {
+    query.search(sessions, session = { it.session }, status = { it.status })
+  }
 
   Column(
     modifier = Modifier
@@ -107,33 +116,45 @@ fun SessionListScreen(
     if (sessions.isEmpty()) {
       EmptySessions(onNewSession = onNewSession)
     } else {
-      val groups = sessions.groupBy { it.session.host }
-      LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-      ) {
-        groups.forEach { (host, hostSessions) ->
-          item(key = "header-$host") {
-            SessionGroupHeader(
-              host = host,
-              activeCount = hostSessions.count {
-                it.status == SessionStatus.Running || it.status == SessionStatus.Connecting
-              },
-              total = hostSessions.size,
-            )
-          }
-          items(hostSessions, key = { it.session.id }) { model ->
-            SessionCard(
-              model = model,
-              canReconnect = canReconnect(model.session.id),
-              selected = model.session.id == selectedSessionId,
-              onOpen = { onOpenSession(model.session.id) },
-              onRename = { renameTarget = model },
-              onDisconnect = { onDisconnect(model.session.id) },
-              onReconnect = { onReconnect(model.session.id) },
-              onRemove = { onRemove(model.session.id) },
-            )
+      SessionSearchControls(query = query, onQueryChange = onQueryChange)
+      if (visibleSessions.isEmpty()) {
+        NoMatchingSessions(onClearFilters = { onQueryChange(SessionListQuery()) })
+      } else {
+        // Keep fuzzy search results flat and ranked; regrouping by host would
+        // hide the best match. An empty search retains the familiar host groups.
+        val groups = if (query.isSearching) {
+          mapOf(null to visibleSessions)
+        } else {
+          visibleSessions.groupBy { it.session.host }
+        }
+        LazyColumn(
+          modifier = Modifier.fillMaxSize(),
+          contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          groups.forEach { (host, hostSessions) ->
+            if (host != null) {
+              item(key = "header-$host") {
+                SessionGroupHeader(
+                  host = host,
+                  activeCount = hostSessions.count { it.status.isLive },
+                  total = hostSessions.size,
+                )
+              }
+            }
+            items(hostSessions, key = { it.session.id }) { model ->
+              SessionCard(
+                model = model,
+                canReconnect = canReconnect(model.session.id),
+                selected = model.session.id == selectedSessionId,
+                onOpen = { onOpenSession(model.session.id) },
+                onRename = { renameTarget = model },
+                onDisconnect = { onDisconnect(model.session.id) },
+                onReconnect = { onReconnect(model.session.id) },
+                onRemove = { onRemove(model.session.id) },
+                onToggleMuted = { onSetMuted(model.session.id, !model.session.notificationsMuted) },
+              )
+            }
           }
         }
       }
@@ -149,6 +170,45 @@ fun SessionListScreen(
         renameTarget = null
       },
     )
+  }
+}
+
+@Composable
+private fun SessionSearchControls(
+  query: SessionListQuery,
+  onQueryChange: (SessionListQuery) -> Unit,
+) {
+  val theme = LocalTetherTheme.current
+  Column(modifier = Modifier.padding(horizontal = 12.dp)) {
+    OutlinedTextField(
+      value = query.text,
+      onValueChange = { onQueryChange(query.copy(text = it)) },
+      label = { Text("Search sessions") },
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth(),
+      trailingIcon = if (query.text.isNotEmpty()) {
+        { TextButton(onClick = { onQueryChange(query.copy(text = "")) }) { Text("Clear") } }
+      } else {
+        null
+      },
+      colors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = theme.accent,
+        cursorColor = theme.accent,
+        focusedLabelColor = theme.accent,
+      ),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      FilterChip(
+        selected = query.filter == SessionListFilter.All,
+        onClick = { onQueryChange(query.copy(filter = SessionListFilter.All)) },
+        label = { Text("All") },
+      )
+      FilterChip(
+        selected = query.filter == SessionListFilter.Waiting,
+        onClick = { onQueryChange(query.copy(filter = SessionListFilter.Waiting)) },
+        label = { Text("Waiting") },
+      )
+    }
   }
 }
 
@@ -187,6 +247,7 @@ private fun SessionCard(
   onDisconnect: () -> Unit,
   onReconnect: () -> Unit,
   onRemove: () -> Unit,
+  onToggleMuted: () -> Unit,
   selected: Boolean = false,
 ) {
   val theme = LocalTetherTheme.current
@@ -234,6 +295,17 @@ private fun SessionCard(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
+      if (session.resumeToolSessionId != null) {
+        Text("Resume by ID configured", color = theme.textMuted, style = MaterialTheme.typography.bodySmall)
+      }
+      if (session.notificationsMuted) {
+        Text(
+          text = "Notifications muted",
+          color = theme.textMuted,
+          style = MaterialTheme.typography.labelSmall,
+          modifier = Modifier.padding(top = 2.dp),
+        )
+      }
       if (model.status != SessionStatus.Running) {
         Text(
           text = model.statusMessage,
@@ -249,10 +321,12 @@ private fun SessionCard(
     SessionCardMenu(
       status = model.status,
       canReconnect = canReconnect,
+      notificationsMuted = session.notificationsMuted,
       onRename = onRename,
       onDisconnect = onDisconnect,
       onReconnect = onReconnect,
       onRemove = onRemove,
+      onToggleMuted = onToggleMuted,
     )
   }
 }
@@ -261,16 +335,15 @@ private fun SessionCard(
 private fun SessionCardMenu(
   status: SessionStatus,
   canReconnect: Boolean,
+  notificationsMuted: Boolean,
   onRename: () -> Unit,
   onDisconnect: () -> Unit,
   onReconnect: () -> Unit,
   onRemove: () -> Unit,
+  onToggleMuted: () -> Unit,
 ) {
   val theme = LocalTetherTheme.current
   var expanded by remember { mutableStateOf(false) }
-  val connected = status == SessionStatus.Running ||
-    status == SessionStatus.Connecting ||
-    status == SessionStatus.Waiting
 
   Box {
     Text(
@@ -287,7 +360,11 @@ private fun SessionCardMenu(
         text = { Text("Rename") },
         onClick = { expanded = false; onRename() },
       )
-      if (connected) {
+      DropdownMenuItem(
+        text = { Text(if (notificationsMuted) "Unmute notifications" else "Mute notifications") },
+        onClick = { expanded = false; onToggleMuted() },
+      )
+      if (status.isLive) {
         DropdownMenuItem(
           text = { Text("Disconnect") },
           onClick = { expanded = false; onDisconnect() },
@@ -303,6 +380,29 @@ private fun SessionCardMenu(
         onClick = { expanded = false; onRemove() },
       )
     }
+  }
+}
+
+@Composable
+private fun NoMatchingSessions(onClearFilters: () -> Unit) {
+  val theme = LocalTetherTheme.current
+  Column(
+    modifier = Modifier.fillMaxSize().padding(24.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center,
+  ) {
+    Text(
+      text = "No matching sessions",
+      color = theme.textPrimary,
+      style = MaterialTheme.typography.titleMedium,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+      text = "Try another search or switch to All.",
+      color = theme.textMuted,
+      style = MaterialTheme.typography.bodyMedium,
+    )
+    TextButton(onClick = onClearFilters) { Text("Clear search and filters") }
   }
 }
 
