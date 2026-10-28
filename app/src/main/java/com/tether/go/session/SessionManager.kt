@@ -105,7 +105,6 @@ class SessionManager(
 
   private val detector = StatusDetector(scope)
   private val detectedStates = HashMap<String, DetectedState>()
-  private val mutedSessions = mutableSetOf<String>()
 
   /** Wired by the foreground service; null in tests / before the service binds. */
   var notifier: SessionNotifier? = null
@@ -137,20 +136,28 @@ class SessionManager(
     appForeground = foreground
   }
 
-  fun isMuted(sessionId: String): Boolean = mutedSessions.contains(sessionId)
+  fun isMuted(sessionId: String): Boolean =
+    runtimes[sessionId]?.session?.notificationsMuted ?: false
 
+  /** Persist per-session notification controls without changing its connection. */
   fun setMuted(sessionId: String, muted: Boolean) {
-    if (muted) {
-      mutedSessions.add(sessionId)
-      notifier?.cancel(sessionId)
-    } else {
-      mutedSessions.remove(sessionId)
+    val runtime = runtimes[sessionId] ?: return
+    if (runtime.session.notificationsMuted != muted) {
+      // Mute is a preference, not session activity: keep its timestamp/order.
+      // Publish after the store accepts the update; synchronous failures leave
+      // the runtime unchanged. SharedPreferences still flushes asynchronously.
+      val updated = runtime.session.copy(notificationsMuted = muted)
+      store.upsertSession(updated)
+      runtime.session = updated
+      recompute()
     }
+    // Also clear an already-posted alert when the session is muted again.
+    if (muted) notifier?.cancel(sessionId)
   }
 
   /** Number of sessions holding (or establishing) a live connection. */
   fun connectedCount(): Int = _sessions.value.count {
-    it.status != SessionStatus.Disconnected && it.status != SessionStatus.Error
+    it.status.isLive
   }
 
   /** Drop all live connections (used when the app is intentionally closed). */
@@ -234,7 +241,6 @@ class SessionManager(
     notifier?.cancel(sessionId)
     states.remove(sessionId)
     detectedStates.remove(sessionId)
-    mutedSessions.remove(sessionId)
     store.deleteSession(sessionId)
     recompute()
   }
@@ -364,11 +370,15 @@ class SessionManager(
   }
 
   private fun maybeNotify(sessionId: String, isBell: Boolean) {
-    if (!notificationsEnabled || mutedSessions.contains(sessionId)) return
-    // Don't ping the session the user is actively looking at.
-    if (appForeground && activeSessionId == sessionId) return
-    if (states[sessionId]?.phase != SshTerminalPhase.Connected) return
     val session = runtimes[sessionId]?.session ?: return
+    val eligible = shouldNotifySession(
+      session = session,
+      notificationsEnabled = notificationsEnabled,
+      appForeground = appForeground,
+      activeSessionId = activeSessionId,
+      connected = states[sessionId]?.phase == SshTerminalPhase.Connected,
+    )
+    if (!eligible) return
     notifier?.notifyWaiting(session, isBell)
   }
 

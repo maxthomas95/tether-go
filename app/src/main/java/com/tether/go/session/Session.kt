@@ -5,9 +5,9 @@ import com.tether.go.cli.LaunchProfile
 
 /**
  * Lifecycle status of a phone-owned session, surfaced in the UI as a status
- * dot. v0.1 distinguishes Connecting / Running / Disconnected / Error directly
- * from the SSH transport; Waiting and Idle are reserved for the future passive
- * status side-channel.
+ * dot. Connecting / Disconnected / Error come from the SSH transport; while
+ * connected, the passive status side-channel distinguishes Running / Waiting /
+ * Idle without changing the terminal stream.
  */
 enum class SessionStatus {
   Connecting,
@@ -15,7 +15,21 @@ enum class SessionStatus {
   Waiting,
   Idle,
   Disconnected,
-  Error,
+  Error;
+
+  /** Includes connections being established and connected sessions at rest. */
+  val isLive: Boolean
+    get() = when (this) {
+      Connecting, Running, Waiting, Idle -> true
+      Disconnected, Error -> false
+    }
+
+  /** Desktop's attention filter includes Waiting only, not errors or saved sessions. */
+  val needsAttention: Boolean
+    get() = when (this) {
+      Waiting -> true
+      Connecting, Running, Idle, Disconnected, Error -> false
+    }
 }
 
 /**
@@ -39,6 +53,7 @@ data class Session(
   val privateKeyId: String?,
   val createdAtMillis: Long,
   val updatedAtMillis: Long,
+  val notificationsMuted: Boolean = false,
 ) {
   val endpointLabel: String get() = "$username@$host:$port"
 

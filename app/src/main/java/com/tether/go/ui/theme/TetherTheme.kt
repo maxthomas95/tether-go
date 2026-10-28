@@ -5,9 +5,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
 /**
- * Tether design tokens, ported 1:1 from the desktop Tether renderer theme
- * registry (`src/renderer/styles/themes.ts`) so the mobile client shares the
- * exact house palette and Catppuccin continuity.
+ * Shared Tether design tokens, ported from the desktop theme registry
+ * (`src/shared/themes.ts`). Desktop-only window and CSS surface tokens are
+ * omitted; each corresponding mobile chrome and terminal color stays aligned.
  *
  * Each theme carries the product chrome tokens (backgrounds, text, accent,
  * status colors) plus a terminal palette (background/foreground/cursor and a
@@ -90,7 +90,7 @@ object TetherThemes {
     bgActive = hex("#585b70"),
     textPrimary = hex("#cdd6f4"),
     textSecondary = hex("#bac2de"),
-    textMuted = hex("#6c7086"),
+    textMuted = hex("#a0a4ba"),
     border = hex("#585b70"),
     accent = hex("#b4befe"),
     statusRunning = hex("#a6e3a1"),
@@ -120,7 +120,7 @@ object TetherThemes {
     bgActive = hex("#5b6078"),
     textPrimary = hex("#cad3f5"),
     textSecondary = hex("#b8c0e0"),
-    textMuted = hex("#6e738d"),
+    textMuted = hex("#a0a6c0"),
     border = hex("#5b6078"),
     accent = hex("#b7bdf8"),
     statusRunning = hex("#a6da95"),
@@ -150,7 +150,7 @@ object TetherThemes {
     bgActive = hex("#626880"),
     textPrimary = hex("#c6d0f5"),
     textSecondary = hex("#b5bfe2"),
-    textMuted = hex("#737994"),
+    textMuted = hex("#adb3cc"),
     border = hex("#626880"),
     accent = hex("#babbf1"),
     statusRunning = hex("#a6d189"),
@@ -180,7 +180,7 @@ object TetherThemes {
     bgActive = hex("#acb0be"),
     textPrimary = hex("#4c4f69"),
     textSecondary = hex("#5c5f77"),
-    textMuted = hex("#9ca0b0"),
+    textMuted = hex("#626579"),
     border = hex("#acb0be"),
     accent = hex("#7287fd"),
     statusRunning = hex("#40a02b"),
@@ -203,26 +203,27 @@ object TetherThemes {
     name = "default-dark",
     label = "Tether (Default Dark)",
     isDark = true,
-    bgPrimary = hex("#1e1e1e"),
-    bgSidebar = hex("#252526"),
-    bgHeader = hex("#2d2d2d"),
-    bgHover = hex("#2a2d2e"),
-    bgActive = hex("#37373d"),
-    textPrimary = hex("#cccccc"),
-    textSecondary = hex("#858585"),
-    textMuted = hex("#5a5a5a"),
-    border = hex("#3c3c3c"),
-    accent = hex("#4fc1e9"),
+    bgPrimary = hex("#171c22"),
+    bgSidebar = hex("#1e252d"),
+    bgHeader = hex("#252e38"),
+    bgHover = hex("#303b47"),
+    bgActive = hex("#344655"),
+    textPrimary = hex("#e7eef5"),
+    textSecondary = hex("#bdcbd8"),
+    textMuted = hex("#a7b5c4"),
+    border = hex("#3d4a58"),
+    accent = hex("#62d2eb"),
     statusRunning = hex("#22c55e"),
     statusWaiting = hex("#eab308"),
     statusIdle = hex("#6b7280"),
     statusDead = hex("#ef4444"),
     btnPrimaryText = hex("#000000"),
-    terminalBg = hex("#1e1e1e"),
-    terminalFg = hex("#cccccc"),
-    terminalCursor = hex("#cccccc"),
+    terminalBg = hex("#171c22"),
+    terminalFg = hex("#e7eef5"),
+    terminalCursor = hex("#e7eef5"),
     terminalSelectionBg = hex("#264f78"),
-    // Desktop's default-dark xterm has no ANSI table; use the VS Code Dark+ set.
+    // Desktop leaves ANSI colors to xterm's defaults. Preserve the native
+    // client's explicit VS Code Dark+ fallback rather than relying on termlib defaults.
     ansi = ansi(
       "#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
       "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#ffffff",
@@ -241,7 +242,7 @@ object TetherThemes {
     bgActive = hex("#d6d6d6"),
     textPrimary = hex("#1f1f1f"),
     textSecondary = hex("#616161"),
-    textMuted = hex("#8c8c8c"),
+    textMuted = hex("#646b78"),
     border = hex("#d4d4d4"),
     accent = hex("#0078d4"),
     statusRunning = hex("#16a34a"),
@@ -271,7 +272,7 @@ object TetherThemes {
     bgActive = hex("#4a4239"),
     textPrimary = hex("#ece4d4"),
     textSecondary = hex("#c9bfae"),
-    textMuted = hex("#807565"),
+    textMuted = hex("#ad9f8b"),
     border = hex("#3a342d"),
     accent = hex("#c68a5c"),
     statusRunning = hex("#22c55e"),
@@ -289,9 +290,130 @@ object TetherThemes {
     ),
   )
 
-  /** Display order used by the theme picker; Mocha first to match desktop. */
+  // ── Nord ────────────────────────────────────────────────────
+  val Nord = TetherTheme(
+    name = "nord",
+    label = "Nord",
+    isDark = true,
+    bgPrimary = hex("#2e3440"),
+    bgSidebar = hex("#272d38"),
+    bgHeader = hex("#3b4252"),
+    bgHover = hex("#434c5e"),
+    bgActive = hex("#4c566a"),
+    textPrimary = hex("#eceff4"),
+    textSecondary = hex("#d8dee9"),
+    textMuted = hex("#b3bdce"),
+    border = hex("#4c566a"),
+    accent = hex("#88c0d0"),
+    statusRunning = hex("#a3be8c"),
+    statusWaiting = hex("#ebcb8b"),
+    statusIdle = hex("#b3bdce"),
+    statusDead = hex("#bf616a"),
+    btnPrimaryText = hex("#2e3440"),
+    terminalBg = hex("#2e3440"),
+    terminalFg = hex("#d8dee9"),
+    terminalCursor = hex("#88c0d0"),
+    terminalSelectionBg = hex("#434c5e"),
+    ansi = ansi(
+      "#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
+      "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4",
+    ),
+  )
+
+  // ── Gruvbox Dark ────────────────────────────────────────────────────
+  val GruvboxDark = TetherTheme(
+    name = "gruvbox-dark",
+    label = "Gruvbox Dark",
+    isDark = true,
+    bgPrimary = hex("#282828"),
+    bgSidebar = hex("#1d2021"),
+    bgHeader = hex("#32302f"),
+    bgHover = hex("#3c3836"),
+    bgActive = hex("#504945"),
+    textPrimary = hex("#ebdbb2"),
+    textSecondary = hex("#d5c4a1"),
+    textMuted = hex("#bdae93"),
+    border = hex("#665c54"),
+    accent = hex("#fe8019"),
+    statusRunning = hex("#b8bb26"),
+    statusWaiting = hex("#fabd2f"),
+    statusIdle = hex("#bdae93"),
+    statusDead = hex("#fb4934"),
+    btnPrimaryText = hex("#282828"),
+    terminalBg = hex("#282828"),
+    terminalFg = hex("#ebdbb2"),
+    terminalCursor = hex("#fe8019"),
+    terminalSelectionBg = hex("#504945"),
+    ansi = ansi(
+      "#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984",
+      "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2",
+    ),
+  )
+
+  // ── Gruvbox Light ────────────────────────────────────────────────────
+  val GruvboxLight = TetherTheme(
+    name = "gruvbox-light",
+    label = "Gruvbox Light",
+    isDark = false,
+    bgPrimary = hex("#fbf1c7"),
+    bgSidebar = hex("#f2e5bc"),
+    bgHeader = hex("#ebdbb2"),
+    bgHover = hex("#ebdbb2"),
+    bgActive = hex("#d5c4a1"),
+    textPrimary = hex("#3c3836"),
+    textSecondary = hex("#504945"),
+    textMuted = hex("#665c54"),
+    border = hex("#bdae93"),
+    accent = hex("#af3a03"),
+    statusRunning = hex("#427b58"),
+    statusWaiting = hex("#8f6200"),
+    statusIdle = hex("#665c54"),
+    statusDead = hex("#9d0006"),
+    btnPrimaryText = hex("#fbf1c7"),
+    terminalBg = hex("#fbf1c7"),
+    terminalFg = hex("#3c3836"),
+    terminalCursor = hex("#af3a03"),
+    terminalSelectionBg = hex("#d5c4a1"),
+    ansi = ansi(
+      "#3c3836", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71", "#427b58", "#7c6f64",
+      "#928374", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71", "#427b58", "#3c3836",
+    ),
+  )
+
+  // ── Harbor ────────────────────────────────────────────────────
+  val Harbor = TetherTheme(
+    name = "harbor",
+    label = "Harbor",
+    isDark = true,
+    bgPrimary = hex("#15232d"),
+    bgSidebar = hex("#101b23"),
+    bgHeader = hex("#1c303b"),
+    bgHover = hex("#25414c"),
+    bgActive = hex("#31535f"),
+    textPrimary = hex("#e7e3d5"),
+    textSecondary = hex("#c4d3d3"),
+    textMuted = hex("#a4b9bb"),
+    border = hex("#3e606b"),
+    accent = hex("#70c1b3"),
+    statusRunning = hex("#9bc88d"),
+    statusWaiting = hex("#e8c078"),
+    statusIdle = hex("#a4b9bb"),
+    statusDead = hex("#ee8f88"),
+    btnPrimaryText = hex("#101b23"),
+    terminalBg = hex("#15232d"),
+    terminalFg = hex("#e7e3d5"),
+    terminalCursor = hex("#70c1b3"),
+    terminalSelectionBg = hex("#31535f"),
+    ansi = ansi(
+      "#25414c", "#ee8f88", "#9bc88d", "#e8c078", "#83b4d5", "#cba3c8", "#70c1b3", "#c4d3d3",
+      "#6e929a", "#ffaaa0", "#b4dda1", "#f5d595", "#9dcbea", "#dfbadb", "#98dacd", "#f4f0e5",
+    ),
+  )
+
+  /** Stable mobile picker order; new built-in themes are appended. */
   val all: List<TetherTheme> = listOf(
     Mocha, Macchiato, Frappe, Latte, TetherDark, TetherLight, Brass,
+    Nord, GruvboxDark, GruvboxLight, Harbor,
   )
 
   val default: TetherTheme = Mocha

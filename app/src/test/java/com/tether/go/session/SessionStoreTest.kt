@@ -2,7 +2,10 @@ package com.tether.go.session
 
 import com.tether.go.cli.CliToolId
 import com.tether.go.ssh.StringPreferenceStore
+import java.util.Base64
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionStoreTest {
@@ -34,6 +37,77 @@ class SessionStoreTest {
 
     val restored = PreferenceBackedSessionStore(MapStore(backing)).loadSessions()
     assertEquals(listOf(session), restored)
+  }
+
+  @Test
+  fun roundTripsMutedAndUnmutedSessionsIndependently() {
+    val backing = mutableMapOf<String, String>()
+    val store = PreferenceBackedSessionStore(MapStore(backing))
+    val muted = sampleSession(id = "muted", updatedAt = 300).copy(notificationsMuted = true)
+    val unmuted = sampleSession(id = "unmuted")
+    store.upsertSession(muted)
+    store.upsertSession(unmuted)
+
+    val restored = PreferenceBackedSessionStore(MapStore(backing)).loadSessions()
+    assertEquals(listOf(muted, unmuted), restored)
+    assertTrue(restored[0].notificationsMuted)
+    assertFalse(restored[1].notificationsMuted)
+  }
+
+  @Test
+  fun loadsLegacyFourteenFieldRecordAsUnmutedAndPreservesItOnUpgrade() {
+    val session = sampleSession()
+    // Explicit legacy schema fixture: the old encoder had no mute field.
+    val fields = listOf(
+      session.id, session.label, session.hostId.orEmpty(), session.host,
+      session.port.toString(), session.username, session.cliTool.id,
+      session.customBinary.orEmpty(), session.workingDir.orEmpty(),
+      session.flags.joinToString("\n"),
+      session.env.entries.joinToString("\n") { "${it.key}=${it.value}" },
+      session.privateKeyId.orEmpty(), session.createdAtMillis.toString(),
+      session.updatedAtMillis.toString(),
+    )
+    val legacyRecord = fields.joinToString("\t") {
+      Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray(Charsets.UTF_8))
+    }
+    val backing = mutableMapOf("session_records_v1" to legacyRecord)
+    val store = PreferenceBackedSessionStore(MapStore(backing))
+
+    val restored = store.loadSessions().single()
+    assertEquals(session, restored)
+    assertFalse(restored.notificationsMuted)
+    store.upsertSession(restored.copy(notificationsMuted = true))
+    assertEquals(15, backing.getValue("session_records_v1").split('\t').size)
+    assertEquals(session.copy(notificationsMuted = true), store.loadSessions().single())
+  }
+
+  @Test
+  fun rejectsMalformedMuteFieldWithoutDroppingOtherRecords() {
+    val backing = mutableMapOf<String, String>()
+    val store = PreferenceBackedSessionStore(MapStore(backing))
+    store.upsertSession(sampleSession())
+    val validRecord = backing.getValue("session_records_v1")
+    val invalidBoolean = Base64.getUrlEncoder().withoutPadding()
+      .encodeToString("invalid".toByteArray(Charsets.UTF_8))
+    backing["session_records_v1"] = validRecord.substringBeforeLast('\t') +
+      "\t" + invalidBoolean + "\n" + validRecord
+
+    assertEquals(listOf(sampleSession()), store.loadSessions())
+  }
+
+  @Test
+  fun preferenceOnlyUpdatePreservesEqualTimestampSessionOrder() {
+    val backing = mutableMapOf<String, String>()
+    val store = PreferenceBackedSessionStore(MapStore(backing))
+    val first = sampleSession(id = "first")
+    val second = sampleSession(id = "second")
+    store.upsertSession(first)
+    store.upsertSession(second)
+
+    store.upsertSession(first.copy(notificationsMuted = true))
+
+    val restored = PreferenceBackedSessionStore(MapStore(backing)).loadSessions()
+    assertEquals(listOf(first.copy(notificationsMuted = true), second), restored)
   }
 
   @Test

@@ -8,6 +8,19 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Added
 
+- Explicit Android 13+ notification permission action in Settings, with an
+  Android settings fallback after denial/dismissal and refreshed app/channel
+  access status on return. The app alert preference remains independent.
+
+- Nord, Gruvbox Dark, Gruvbox Light, and Harbor appearance themes, completing
+  the 11 built-in desktop theme choices.
+
+- Ranked fuzzy session search across labels, SSH endpoints, working directories,
+  and CLI tools, plus an All / Waiting filter in phone and expanded layouts.
+  No-match results can be cleared without changing the active terminal.
+- Per-session notification mute / unmute actions and a visible muted state.
+  Mute preferences persist across app restarts; existing saved sessions default
+  to unmuted, and muting clears an existing session alert.
 - Tether product UI shell with the house visual identity. The session list is
   now the home screen, grouped by host, with CLI-tool chips, status dots, and
   per-session rename / disconnect / reconnect / remove actions.
@@ -34,6 +47,13 @@ This project follows a human-maintained changelog. Dates use `YYYY-MM-DD`.
 
 ### Changed
 
+- Built-in theme colors now match corresponding current desktop tokens,
+  including improved muted-text contrast. Stored theme IDs, picker order for
+  existing themes, and the Mocha default are unchanged. Native terminal
+  cursor/selection behavior and custom-theme import remain separate work.
+
+- Session counts and connection actions consistently treat Connecting, Running,
+  Waiting, and Idle as live; Idle sessions correctly offer Disconnect.
 - `MainActivity` hosts the product navigation (`TetherGoApp`) instead of the
   terminal renderer spike screen.
 

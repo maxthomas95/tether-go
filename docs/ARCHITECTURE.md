@@ -100,6 +100,11 @@ TetherGoApp (root)
   observable `StateFlow<List<SessionUiModel>>` (metadata + derived status) for
   the list, creates/persists sessions, reconnects using stored private-key auth
   when available, and types the launch command into the PTY once on connect.
+- **Session discovery** is pure metadata-only fuzzy ranking, adapted from the
+  desktop session switcher. Label / directory / SSH endpoint / CLI weights are
+  1.0 / 0.6 / 0.45 / 0.4, with stable input order on ties. The All / Waiting
+  filter uses the shared status helpers. Query state is hoisted above compact
+  and expanded layouts and never drives session selection or transport state.
 - **Launch command** is assembled by `LaunchCommandBuilder` from the
   `cli` package (CLI registry + POSIX `ShellQuote`), ported from desktop Tether
   shared code. It is only string assembly — the same command a user would type
@@ -111,7 +116,14 @@ TetherGoApp (root)
   it (sessions stay alive); the `SessionManager` scope is tied to the root
   composition, so intentionally closing the app tears sessions down.
 - **Persistence**: session metadata is stored with the same tab/base64 encoding
-  as the host store, and contains no secrets (only a `privateKeyId` reference).
+  as the host store, with only a `privateKeyId` reference to secure key storage.
+  A fifteenth field stores `notificationsMuted`; legacy fourteen-field records
+  load as unmuted. Preference-only mute updates preserve activity timestamps and
+  equal-timestamp ordering. The manager submits changes to storage before
+  publishing them (SharedPreferences flushes asynchronously),
+  cancels an existing alert when muted, and applies the stored setting alongside
+  the global, active-terminal, and connection notification gates. Launch env
+  values remain existing session metadata and are excluded from discovery.
 
 ## Terminal Renderer Decision
 

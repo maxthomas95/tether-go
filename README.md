@@ -16,9 +16,9 @@ dots. A New Session flow gathers an SSH host, auth, CLI tool (Claude, Codex,
 Copilot, OpenCode, or Custom), working directory, launch flags, environment
 variables, and a label, then connects directly, confirms and pins the first
 presented host key, requests an `xterm-256color` PTY, and types the launch
-command into a full-screen terminal with a mobile quick bar. The Catppuccin
-Mocha / Tether theme set, the Tether logo, and live theme switching are in
-place. Under the hood it builds a ConnectBot `termlib` terminal per session and
+command into a full-screen terminal with a mobile quick bar. All 11 built-in desktop themes, the Tether logo, and live theme switching
+are in place, including Nord, Gruvbox Dark, Gruvbox Light, and Harbor. Saved
+theme preferences and the Mocha default are unchanged. Under the hood it builds a ConnectBot `termlib` terminal per session and
 keeps raw SSH bytes flowing both ways unchanged.
 
 Passwords remain temporary in-memory connection input and are not persisted.
@@ -28,6 +28,20 @@ Keystore key used for encrypted storage requires recent device credential or
 strong biometric authentication before use. Phone-owned notifications and
 push-to-talk voice input are implemented and still need release-candidate device
 validation.
+
+Settings distinguishes the in-app session-alert preference from Android
+notification permission and the Session activity channel. Enable Android
+notifications explicitly from Settings; after denial or dismissal, use the
+notification settings action. Returning from Android settings refreshes the
+reported access. No permission prompt opens automatically. The session-alert
+switch does not disable the foreground running-session service notification.
+
+Security limitation: session launch environment values and extra arguments are
+currently saved in app-private preferences with encoding, not encryption. Do
+not put API keys, tokens, or other secrets in those fields. This is separate
+from the encrypted SSH private-key store; backup and device-transfer exclusions
+do not make the launch fields encrypted. Secure launch-value storage and
+migration remain follow-up work before richer saved profiles.
 
 The initial product direction is intentionally small:
 
@@ -52,6 +66,31 @@ The initial product direction is intentionally small:
 - Phone-owned notifications for sessions currently observed by the app.
 - Push-to-talk voice input that types final transcripts into the PTY.
 - Tether visual identity and theme continuity where practical.
+
+## Finding Sessions and Controlling Alerts
+
+Use **Search sessions** to find a label, SSH endpoint (`username@host:port`),
+working directory, or CLI tool, including a custom binary. Search uses Tether's
+case-insensitive fuzzy matching: for example, `apsv` can find `api-server`.
+Label matches rank ahead of equivalent directory, endpoint, and CLI matches.
+Search results are shown in ranked order; clearing the search restores host
+groups. Terminal output, environment values, flags, and credentials are never
+searched.
+
+**All** includes saved and live sessions. **Waiting** narrows the list to
+sessions whose passive status detector reports waiting, and combines with the
+search. Filtering never disconnects a session or changes the terminal selected
+in the tablet/foldable detail pane. Search and filter choices survive navigation
+and fold/unfold changes while the app UI remains open.
+
+Each session's **⋮** menu has **Mute notifications** / **Unmute notifications**.
+Muted rows show **Notifications muted**. This preference survives app restarts;
+previously saved sessions start unmuted. Muting dismisses an existing alert for
+that session and suppresses future waiting/bell alerts without disconnecting it
+or hiding its status. Unmuting permits future alerts; it does not replay past
+ones. The global notification setting and active-terminal suppression still
+apply. These controls only affect phone-owned alerts, not desktop sessions or
+Android's notification permission.
 
 ## Documentation
 
